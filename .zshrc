@@ -57,10 +57,18 @@ eval "$(fnm env --use-on-cd --shell zsh)"
 # Paths
 # ==============================================================================
 
-# PATH="$PATH:"
-export PATH="/opt/homebrew/bin:$PATH"
-export PATH="/Users/david/.local/bin:$PATH"
+export PATH="$HOME/.local/bin:$PATH"
 
+# pnpm
+export PNPM_HOME="/Users/david/Library/pnpm"
+case ":$PATH:" in
+  *":$PNPM_HOME:"*) ;;
+  *) export PATH="$PNPM_HOME:$PATH" ;;
+esac
+# pnpm end
+
+# opencode
+export PATH=/Users/david/.opencode/bin:$PATH
 
 # ==============================================================================
 # Shortcuts
