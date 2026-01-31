@@ -10,15 +10,15 @@ watchlist:
   - NVDA
   - AMD
   - BTCUSD
-groups:
-  - name: "IBKR"
-    lots:
-      - symbol: "META"
-        quantity: 2
-        unit_cost: 598.501
-      - symbol: "NVDA"
-        quantity: 6
-        unit_cost: 195.417
-      - symbol: "TQQQ"
-        quantity: 100
-        unit_cost: 49.794
+lots:
+  - symbol: "META"
+    quantity: 2
+    unit_cost: 598.501
+  - symbol: "NVDA"
+    quantity: 6
+    unit_cost: 195.417
+  - symbol: "TQQQ"
+    quantity: 100
+    unit_cost: 49.794
+# groups:
+#   - name: "IBKR"
