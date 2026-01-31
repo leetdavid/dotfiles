@@ -1,0 +1,24 @@
+show-summary: true
+show-tags: true
+show-fundamentals: true
+show-separator: true
+show-positions: true
+currency: USD
+watchlist:
+  - QQQ
+  - TQQQ
+  - NVDA
+  - AMD
+  - BTCUSD
+groups:
+  - name: "IBKR"
+    lots:
+      - symbol: "META"
+        quantity: 2
+        unit_cost: 598.501
+      - symbol: "NVDA"
+        quantity: 6
+        unit_cost: 195.417
+      - symbol: "TQQQ"
+        quantity: 100
+        unit_cost: 49.794
