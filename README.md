@@ -45,3 +45,30 @@ To update dotfiles after making changes:
 cd ~/dotfiles
 stow -R .
 ```
+
+## Managing Files
+
+### Adding New Files
+
+To add a new configuration file to be managed by stow:
+
+1. Create the file in the repository in the same relative location as it would be in your home directory (e.g., `nvim/.config/nvim/init.lua` for `~/.config/nvim/init.lua`)
+2. Ensure the parent directory structure mirrors your home directory
+3. Run `stow -R .` to recreate all symlinks
+
+### Unstowing Files
+
+To stop managing a file with stow but keep the actual file in place:
+
+```bash
+# Unstow a specific package (e.g., "nvim")
+stow -D nvim
+
+# The file will remain at its original location (e.g., ~/.config/nvim/init.lua)
+# but will no longer be symlinked to the dotfiles repo
+
+# If you want to restore management later, re-stow the package
+stow nvim
+```
+
+**Note:** After unstowing, changes to the file in `~` will no longer be reflected in the dotfiles repository.
