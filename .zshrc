@@ -16,48 +16,32 @@ fi
 # Source/Load zinit
 source "${ZINIT_HOME}/zinit.zsh"
 
-# Add in zsh plugins
-zinit ice wait'0' blockf
-zinit light zsh-users/zsh-completions
-
-zinit ice wait'1'
-zinit light zsh-users/zsh-autosuggestions
-
-zinit ice wait'1'
-zinit light Aloxaf/fzf-tab
-
-zinit ice wait'2'
-zinit light zsh-users/zsh-syntax-highlighting
-
-# # Add in snippets
-zinit ice wait'1'
-zinit snippet OMZP::git
-zinit snippet OMZP::sudo
-# zinit snippet OMZP::kubectl
-zinit snippet OMZP::command-not-found
-# zinit snippet OMZP::gcloud
-# zinit snippet OMZP::archlinux
-
-# Load completions via zinit
-zinit ice wait'0' atinit'ZINIT[COMPINIT_OPTS]=-C; zicompinit; zicdreplay'
-zinit light zdharma-continuum/fast-syntax-highlighting
-
-# ==============================================================================
-# Plugins
-# ==============================================================================
-
-if [[ -f "/opt/homebrew/bin/brew" ]] then
-  # If you're using macOS, you'll want this enabled
-  eval "$(/opt/homebrew/bin/brew shellenv)"
-fi
-
-
-# Completion styling
+# Completion styling (keep before fzf-tab loads)
 zstyle ':completion:*' matcher-list 'm:{a-z}={A-Za-z}'
 zstyle ':completion:*' list-colors "${(s.:.)LS_COLORS}"
 zstyle ':completion:*' menu no
 zstyle ':fzf-tab:complete:cd:*' fzf-preview 'ls --color $realpath'
 zstyle ':fzf-tab:complete:__zoxide_z:*' fzf-preview 'ls --color $realpath'
+
+# Add in zsh plugins/snippets (Turbo)
+zinit for \
+  wait'0' lucid blockf atinit'ZINIT[COMPINIT_OPTS]=-C; zicompinit; zicdreplay' zsh-users/zsh-completions \
+  wait'1' lucid zsh-users/zsh-autosuggestions \
+  wait'1' lucid Aloxaf/fzf-tab \
+  wait'1' lucid OMZP::git \
+  wait'1' lucid OMZP::sudo \
+  wait'1' lucid OMZP::command-not-found \
+  wait'2' lucid zdharma-continuum/fast-syntax-highlighting
+
+# ==============================================================================
+# Plugins
+# ==============================================================================
+
+if [[ -f "/opt/homebrew/bin/brew" ]]; then
+  # If you're using macOS, you'll want this enabled
+  eval "$(/opt/homebrew/bin/brew shellenv)"
+fi
+
 
 eval "$(starship init zsh)"
 
@@ -101,9 +85,6 @@ alias oc="opencode"
 alias p="pnpm"
 alias v="nvim"
 alias watch="watch "
-
-# Load completions
-autoload -Uz compinit && compinit
 
 # Run at end
 # zinit cdreplay -q
