@@ -5,32 +5,42 @@
 # ==============================================================================
 
 # # Set the directory we want to store zinit and plugins
-# ZINIT_HOME="${XDG_DATA_HOME:-${HOME}/.local/share}/zinit/zinit.git"
+ZINIT_HOME="${XDG_DATA_HOME:-${HOME}/.local/share}/zinit/zinit.git"
 
-# # Download Zinit, if it's not there yet
-# if [ ! -d "$ZINIT_HOME" ]; then
-#    mkdir -p "$(dirname $ZINIT_HOME)"
-#    git clone https://github.com/zdharma-continuum/zinit.git "$ZINIT_HOME"
-# fi
+# Download Zinit, if it's not there yet
+if [ ! -d "$ZINIT_HOME" ]; then
+   mkdir -p "$(dirname $ZINIT_HOME)"
+   git clone https://github.com/zdharma-continuum/zinit.git "$ZINIT_HOME"
+fi
 
-# # Source/Load zinit
-# source "${ZINIT_HOME}/zinit.zsh"
+# Source/Load zinit
+source "${ZINIT_HOME}/zinit.zsh"
 
-# # Add in zsh plugins
-# zinit light zsh-users/zsh-syntax-highlighting
-# zinit light zsh-users/zsh-completions
-# zinit light zsh-users/zsh-autosuggestions
-# zinit light Aloxaf/fzf-tab
+# Add in zsh plugins
+zinit ice wait'0' blockf
+zinit light zsh-users/zsh-completions
+
+zinit ice wait'1'
+zinit light zsh-users/zsh-autosuggestions
+
+zinit ice wait'1'
+zinit light Aloxaf/fzf-tab
+
+zinit ice wait'2'
+zinit light zsh-users/zsh-syntax-highlighting
 
 # # Add in snippets
-# zinit snippet OMZP::git
-# zinit snippet OMZP::sudo
+zinit ice wait'1'
+zinit snippet OMZP::git
+zinit snippet OMZP::sudo
 # zinit snippet OMZP::kubectl
-# zinit snippet OMZP::command-not-found
-# zinit snippet OMZP::pyenv
+zinit snippet OMZP::command-not-found
 # zinit snippet OMZP::gcloud
-# # zinit snippet OMZP::archlinux
+# zinit snippet OMZP::archlinux
 
+# Load completions via zinit
+zinit ice wait'0' atinit'ZINIT[COMPINIT_OPTS]=-C; zicompinit; zicdreplay'
+zinit light zdharma-continuum/fast-syntax-highlighting
 
 # ==============================================================================
 # Plugins
