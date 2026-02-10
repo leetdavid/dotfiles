@@ -21,19 +21,19 @@
   {
     "context": "Workspace",
     "bindings": {
-      "cmd-shift-g": "git_panel::ToggleFocus"
-    }
+      "cmd-shift-g": "git_panel::ToggleFocus",
+    },
   },
   {
     "context": "Editor",
     "bindings": {
-      "f1": "editor::GoToDefinition"
-    }
+      "f1": "editor::GoToDefinition",
+    },
   },
   {
     "context": "Editor",
     "bindings": {
-      "f3": "editor::FindAllReferences"
-    }
-  }
+      "f3": "editor::FindAllReferences",
+    },
+  },
 ]
