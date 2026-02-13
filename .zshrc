@@ -34,7 +34,7 @@ zinit for \
   wait'2' lucid zdharma-continuum/fast-syntax-highlighting
 
 if [ "$MSYSTEM" = "MINGW64" ]; then
-  export "/c/Users/david/.cargo/bin:$PATH"
+  export PATH="/c/Users/david/.cargo/bin:$PATH"
 fi
 
 # ==============================================================================
