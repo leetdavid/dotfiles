@@ -33,6 +33,10 @@ zinit for \
   wait'1' lucid OMZP::command-not-found \
   wait'2' lucid zdharma-continuum/fast-syntax-highlighting
 
+if [ "$MSYSTEM" = "MINGW64" ]; then
+  export "/c/Users/david/.cargo/bin:$PATH"
+fi
+
 # ==============================================================================
 # Plugins
 # ==============================================================================
