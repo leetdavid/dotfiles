@@ -57,6 +57,8 @@ eval "$(fnm env --use-on-cd --shell zsh)"
 
 export PATH="$HOME/.local/bin:$PATH"
 
+export XDG_CONFIG_PATH="$HOME/.config/"
+
 # pnpm
 export PNPM_HOME="/Users/david/Library/pnpm"
 case ":$PATH:" in
@@ -89,6 +91,7 @@ alias oc="opencode"
 alias p="pnpm"
 alias v="nvim"
 alias watch="watch "
+alias zj="zellij"
 
 # Run at end
 # zinit cdreplay -q
