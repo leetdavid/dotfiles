@@ -68,7 +68,7 @@ esac
 # pnpm end
 
 # opencode
-export PATH=/Users/david/.opencode/bin:$PATH
+export PATH="$HOME/.opencode/bin:$PATH"
 
 # ==============================================================================
 # Shortcuts
