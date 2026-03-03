@@ -86,12 +86,22 @@ if [[ $- == *i* ]]; then
 fi
 
 alias k="kubectl"
+alias ll="ls -l"
 alias lg="lazygit"
 alias oc="opencode"
 alias p="pnpm"
 alias v="nvim"
 alias watch="watch "
 alias zj="zellij"
+
+alias pi="pnpm install"
+alias pd="pnpm dev"
+alias vl="vercel link --repo"
+alias vp="vercel env pull .env"
+
+reload() {
+    source ~/.zshrc
+}
 
 # Run at end
 # zinit cdreplay -q
