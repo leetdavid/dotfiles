@@ -1,0 +1,24 @@
+{
+  "sound": true,
+  "notification": true,
+  "timeout": 5,
+  "showProjectName": true,
+  "events": {
+    "permission": { "sound": true, "notification": true },
+    "complete": { "sound": true, "notification": true },
+    "error": { "sound": true, "notification": true },
+    "question": { "sound": true, "notification": true }
+  },
+  "messages": {
+    "permission": "Session needs permission",
+    "complete": "Session has finished",
+    "error": "Session encountered an error",
+    "question": "Session has a question"
+  },
+  "sounds": {
+    "permission": "/Users/david/.config/opencode/vine-boom.mp3",
+    "complete": "/Users/david/.config/opencode/jobs_done.mp3",
+    "error": "/Users/david/.config/opencode/fahhh.mp3",
+    "question": "/Users/david/.config/opencode/rizz-sound-effect.mp3"
+  }
+}
