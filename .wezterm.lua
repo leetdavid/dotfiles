@@ -4,6 +4,9 @@ local config = wezterm.config_builder()
 
 config.font = wezterm.font("Comic Code Ligatures")
 config.font_size = 13
+--config.color_scheme = '3024 (dark) (terminal.sexy)'
+--config.color_scheme = 'Adventure'
+config.color_scheme = 'Afterglow'
 
 config.window_decorations = "RESIZE"
 
