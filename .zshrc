@@ -122,7 +122,7 @@ alias v="nvim"
 alias watch="watch "
 alias zj="zellij"
 
-alias gp="git pull"
+alias gpl="git pull"
 alias pi="pnpm install"
 alias pb="pnpm build"
 alias pd="pnpm dev"
