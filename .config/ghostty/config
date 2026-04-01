@@ -53,12 +53,16 @@ split-divider-color = #202020
 
 macos-titlebar-style = tabs
 macos-icon = holographic
+macos-auto-secure-input = true
+
+window-new-tab-position = end
 
 font-family = Comic Code Ligatures
 font-size = 12
 window-inherit-font-size = false
 font-thicken = true
 cursor-style = block_hollow
+window-title-font-family = ZedMono Nerd Font
 
 bold-is-bright = true
 
