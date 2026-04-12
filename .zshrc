@@ -35,6 +35,8 @@ zinit for \
 
 if [ "$MSYSTEM" = "MINGW64" ]; then
   export PATH="/c/Users/david/.cargo/bin:$PATH"
+  export PATH="/c/users/david/.local/bin:$PATH"
+  export PATH=$PATH:/c/ProgramData/chocolatey/bin
 fi
 
 # ==============================================================================
