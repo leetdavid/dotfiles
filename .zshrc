@@ -40,8 +40,9 @@ if [ "$MSYSTEM" = "MINGW64" ]; then
   export PATH=$PATH:/c/ProgramData/chocolatey/bin
 fi
 
-# If on Linux, use linuxbrew
+# If on Linux, use linuxbrew with sudo
 if [[ "$OSTYPE" == "linux-gnu"* ]]; then
+  function brew() { (cd /home/linuxbrew && sudo -Hu linuxbrew /home/linuxbrew/.linuxbrew/bin/brew "$@") }
   eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
 fi
 
