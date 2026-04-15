@@ -6,8 +6,8 @@ set -euo pipefail
 
 LM_HOME="${LM_HOME:-$HOME/.lm}"
 LM_MODELS_DIR="$LM_HOME/models"
-LM_SERVER_PORT="${LM_SERVER_PORT:-11434}"
-LM_SERVER_HOST="${LM_SERVER_HOST:-127.0.0.1}"
+LM_SERVER_PORT="${LM_SERVER_PORT:-1234}"
+LM_SERVER_HOST="${LM_SERVER_HOST:-0.0.0.0}"
 LM_CTX_SIZE="${LM_CTX_SIZE:-4096}"
 LM_GPU_LAYERS="${LM_GPU_LAYERS:--1}"
 LM_THREADS="${LM_THREADS:-$(sysctl -n hw.ncpu 2>/dev/null || nproc 2>/dev/null || echo 4)}"
@@ -247,8 +247,8 @@ EXAMPLES
 
 ENVIRONMENT
   LM_HOME          Storage dir        (default: ~/.lm)
-  LM_SERVER_PORT   API server port    (default: 11434)
-  LM_SERVER_HOST   API server host    (default: 127.0.0.1)
+  LM_SERVER_PORT   API server port    (default: 1234)
+  LM_SERVER_HOST   API server host    (default: 0.0.0.0)
   LM_CTX_SIZE      Context window     (default: 4096)
   LM_GPU_LAYERS    GPU offload layers (default: -1 = all)
   LM_THREADS       CPU threads        (default: auto)
