@@ -33,10 +33,17 @@ zinit for \
   wait'1' lucid OMZP::command-not-found \
   wait'2' lucid zdharma-continuum/fast-syntax-highlighting
 
+# If on Windows (MING64)
 if [ "$MSYSTEM" = "MINGW64" ]; then
   export PATH="/c/Users/david/.cargo/bin:$PATH"
   export PATH="/c/users/david/.local/bin:$PATH"
   export PATH=$PATH:/c/ProgramData/chocolatey/bin
+fi
+
+# If on Linux, use linuxbrew with sudo
+if [[ "$OSTYPE" == "linux-gnu"* ]]; then
+  function brew() { (cd /home/linuxbrew && sudo -Hu linuxbrew /home/linuxbrew/.linuxbrew/bin/brew "$@") }
+  eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
 fi
 
 # ==============================================================================
