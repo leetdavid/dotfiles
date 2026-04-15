@@ -8,7 +8,7 @@ LM_HOME="${LM_HOME:-$HOME/.lm}"
 LM_MODELS_DIR="$LM_HOME/models"
 LM_SERVER_PORT="${LM_SERVER_PORT:-1234}"
 LM_SERVER_HOST="${LM_SERVER_HOST:-0.0.0.0}"
-LM_CTX_SIZE="${LM_CTX_SIZE:-4096}"
+LM_CTX_SIZE="${LM_CTX_SIZE:-256000}"
 LM_GPU_LAYERS="${LM_GPU_LAYERS:--1}"
 LM_THREADS="${LM_THREADS:-$(sysctl -n hw.ncpu 2>/dev/null || nproc 2>/dev/null || echo 4)}"
 
