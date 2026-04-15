@@ -73,7 +73,9 @@ cmd_pull() {
 
     command -v curl &>/dev/null || die "'curl' is required for lm pull."
 
-    # Strip hf:// prefix
+    # Strip URL prefixes: https://huggingface.co/ or hf://
+    spec="${spec#https://huggingface.co/}"
+    spec="${spec#http://huggingface.co/}"
     spec="${spec#hf://}"
 
     # Extract optional quantization suffix (owner/repo:Q4_K_M)
