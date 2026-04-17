@@ -122,6 +122,7 @@ if [[ "$(uname -s)" == "Darwin" ]]; then
   }
 fi
 
+alias ash="autossh"
 alias k="kubectl"
 alias ll="ls -l"
 alias lg="lazygit"
@@ -131,6 +132,7 @@ alias v="nvim"
 alias watch="watch "
 alias zj="zellij"
 
+alias gp="git push"
 alias gpl="git pull"
 alias pi="pnpm install"
 alias pb="pnpm build"
