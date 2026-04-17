@@ -8,7 +8,7 @@ LM_HOME="${LM_HOME:-$HOME/.lm}"
 LM_MODELS_DIR="$LM_HOME/models"
 LM_SERVER_PORT="${LM_SERVER_PORT:-1234}"
 LM_SERVER_HOST="${LM_SERVER_HOST:-0.0.0.0}"
-LM_CTX_SIZE="${LM_CTX_SIZE:-4096}"
+LM_CTX_SIZE="${LM_CTX_SIZE:-}"  # empty = auto-detect from GGUF, fallback 4096
 LM_GPU_LAYERS="${LM_GPU_LAYERS:--1}"
 LM_THREADS="${LM_THREADS:-$(sysctl -n hw.ncpu 2>/dev/null || nproc 2>/dev/null || echo 4)}"
 
@@ -62,6 +62,68 @@ hf_list_ggufs() {
         echo "$raw" | jq -r '.siblings[].rfilename' | grep '\.gguf$'
     else
         echo "$raw" | grep -o '"rfilename":"[^"]*\.gguf"' | sed 's/"rfilename":"//;s/"//'
+    fi
+}
+
+# Read context length from GGUF metadata; prints nothing on failure
+gguf_ctx_len() {
+    local path="$1"
+    [[ -f "$path" ]] || return
+    python3 - "$path" 2>/dev/null <<'PYEOF'
+import sys, struct
+
+def read_val(f, vtype):
+    if   vtype ==  0: return struct.unpack('<B', f.read(1))[0]   # uint8
+    elif vtype ==  1: return struct.unpack('<b', f.read(1))[0]   # int8
+    elif vtype ==  2: return struct.unpack('<H', f.read(2))[0]   # uint16
+    elif vtype ==  3: return struct.unpack('<h', f.read(2))[0]   # int16
+    elif vtype ==  4: return struct.unpack('<I', f.read(4))[0]   # uint32
+    elif vtype ==  5: return struct.unpack('<i', f.read(4))[0]   # int32
+    elif vtype ==  6: return struct.unpack('<f', f.read(4))[0]   # float32
+    elif vtype ==  7: return struct.unpack('<B', f.read(1))[0]   # bool
+    elif vtype ==  8:
+        slen = struct.unpack('<Q', f.read(8))[0]
+        return f.read(slen).decode('utf-8', errors='replace')
+    elif vtype ==  9:
+        arr_type = struct.unpack('<I', f.read(4))[0]
+        arr_len  = struct.unpack('<Q', f.read(8))[0]
+        return [read_val(f, arr_type) for _ in range(arr_len)]
+    elif vtype == 10: return struct.unpack('<Q', f.read(8))[0]   # uint64
+    elif vtype == 11: return struct.unpack('<q', f.read(8))[0]   # int64
+    elif vtype == 12: return struct.unpack('<d', f.read(8))[0]   # float64
+    else: raise ValueError(f'Unknown GGUF value type {vtype}')
+
+with open(sys.argv[1], 'rb') as f:
+    if f.read(4) != b'GGUF': sys.exit(1)
+    _version  = f.read(4)
+    n_tensors = struct.unpack('<Q', f.read(8))[0]
+    n_kv      = struct.unpack('<Q', f.read(8))[0]
+    for _ in range(n_kv):
+        klen = struct.unpack('<Q', f.read(8))[0]
+        key  = f.read(klen).decode('utf-8')
+        vtype = struct.unpack('<I', f.read(4))[0]
+        val   = read_val(f, vtype)
+        if key == 'llama.context_length':
+            print(val)
+            sys.exit(0)
+PYEOF
+}
+
+# Resolve effective context size: env var > GGUF metadata > fallback
+resolve_ctx_size() {
+    local model_path="${1:-}"
+    if [[ -n "$LM_CTX_SIZE" ]]; then
+        echo "$LM_CTX_SIZE"
+        return
+    fi
+    local detected=""
+    if [[ -n "$model_path" ]]; then
+        detected=$(gguf_ctx_len "$model_path")
+    fi
+    if [[ -n "$detected" && "$detected" -gt 0 ]] 2>/dev/null; then
+        echo "$detected"
+    else
+        echo "4096"
     fi
 }
 
@@ -142,14 +204,15 @@ cmd_run() {
     [[ -z "$model" ]] && die "Usage: lm run <model> [-- llama-cli-args]"
     shift
 
-    local cli model_path
+    local cli model_path ctx
     cli=$(find_llama_cli)
     model_path=$(resolve_model "$model")
+    ctx=$(resolve_ctx_size "$model_path")
 
-    info "Running $(basename "$model_path")"
+    info "Running $(basename "$model_path") (ctx $ctx)"
     exec "$cli" \
         -m "$model_path" \
-        -c "$LM_CTX_SIZE" \
+        -c "$ctx" \
         -ngl "$LM_GPU_LAYERS" \
         -t "$LM_THREADS" \
         --conversation \
@@ -161,14 +224,16 @@ cmd_serve() {
     local model="${1:-}"
     [[ $# -gt 0 ]] && shift
 
-    local srv model_args=()
+    local srv model_path="" model_args=() ctx
     srv=$(find_llama_server)
 
     if [[ -n "$model" ]]; then
-        local model_path
         model_path=$(resolve_model "$model")
         model_args=(-m "$model_path")
-        info "Serving $(basename "$model_path")"
+        ctx=$(resolve_ctx_size "$model_path")
+        info "Serving $(basename "$model_path") (ctx $ctx)"
+    else
+        ctx=$(resolve_ctx_size "")
     fi
 
     info "llama-server listening on http://${LM_SERVER_HOST}:${LM_SERVER_PORT}"
@@ -176,7 +241,7 @@ cmd_serve() {
         "${model_args[@]}" \
         --host "$LM_SERVER_HOST" \
         --port "$LM_SERVER_PORT" \
-        -c "$LM_CTX_SIZE" \
+        -c "$ctx" \
         -ngl "$LM_GPU_LAYERS" \
         -t "$LM_THREADS" \
         "$@"
@@ -207,6 +272,127 @@ cmd_rm() {
     info "Removed: $(basename "$model_path")"
 }
 
+cmd_show() {
+    local model="${1:-}"
+    [[ -z "$model" ]] && die "Usage: lm show <model>"
+    local model_path
+    model_path=$(resolve_model "$model")
+
+    python3 - "$model_path" 2>/dev/null <<'PYEOF'
+import sys, struct, os
+from collections import Counter
+
+GGML_TYPES = {
+    0: 'F32',  1: 'F16',      2: 'Q4_0',    3: 'Q4_1',
+    6: 'Q5_0', 7: 'Q5_1',    8: 'Q8_0',    9: 'Q8_1',
+    10: 'Q2_K', 11: 'Q3_K',  12: 'Q4_K',   13: 'Q5_K',
+    14: 'Q6_K', 15: 'Q8_K',  16: 'IQ2_XXS',17: 'IQ2_XS',
+    18: 'IQ3_XXS', 19: 'IQ1_S', 20: 'IQ4_NL', 21: 'IQ3_S',
+    22: 'IQ2_S', 23: 'IQ4_XS', 30: 'BF16',
+}
+
+def read_val(f, vtype):
+    if   vtype ==  0: return struct.unpack('<B', f.read(1))[0]
+    elif vtype ==  1: return struct.unpack('<b', f.read(1))[0]
+    elif vtype ==  2: return struct.unpack('<H', f.read(2))[0]
+    elif vtype ==  3: return struct.unpack('<h', f.read(2))[0]
+    elif vtype ==  4: return struct.unpack('<I', f.read(4))[0]
+    elif vtype ==  5: return struct.unpack('<i', f.read(4))[0]
+    elif vtype ==  6: return struct.unpack('<f', f.read(4))[0]
+    elif vtype ==  7: return bool(struct.unpack('<B', f.read(1))[0])
+    elif vtype ==  8:
+        slen = struct.unpack('<Q', f.read(8))[0]
+        return f.read(slen).decode('utf-8', errors='replace')
+    elif vtype ==  9:
+        arr_type = struct.unpack('<I', f.read(4))[0]
+        arr_len  = struct.unpack('<Q', f.read(8))[0]
+        return [read_val(f, arr_type) for _ in range(arr_len)]
+    elif vtype == 10: return struct.unpack('<Q', f.read(8))[0]
+    elif vtype == 11: return struct.unpack('<q', f.read(8))[0]
+    elif vtype == 12: return struct.unpack('<d', f.read(8))[0]
+    else: raise ValueError(f'Unknown GGUF value type {vtype}')
+
+path = sys.argv[1]
+with open(path, 'rb') as f:
+    if f.read(4) != b'GGUF':
+        print("Not a valid GGUF file", file=sys.stderr); sys.exit(1)
+    version   = struct.unpack('<I', f.read(4))[0]
+    n_tensors = struct.unpack('<Q', f.read(8))[0]
+    n_kv      = struct.unpack('<Q', f.read(8))[0]
+
+    kv = {}
+    for _ in range(n_kv):
+        klen  = struct.unpack('<Q', f.read(8))[0]
+        key   = f.read(klen).decode('utf-8')
+        vtype = struct.unpack('<I', f.read(4))[0]
+        kv[key] = read_val(f, vtype)
+
+    # Read tensor entries to detect quantization from weight types
+    weight_types = []
+    for _ in range(n_tensors):
+        nlen   = struct.unpack('<Q', f.read(8))[0]
+        tname  = f.read(nlen).decode('utf-8')
+        n_dims = struct.unpack('<I', f.read(4))[0]
+        _dims  = [struct.unpack('<Q', f.read(8))[0] for _ in range(n_dims)]
+        ttype  = struct.unpack('<I', f.read(4))[0]
+        _off   = struct.unpack('<Q', f.read(8))[0]
+        # Skip norm tensors (always F32 even in quantized models)
+        if (tname.endswith('.weight') and 'blk.' in tname
+                and '_norm' not in tname):
+            weight_types.append(ttype)
+
+arch   = kv.get('general.architecture', 'unknown')
+ctx    = kv.get(f'{arch}.context_length') or kv.get('llama.context_length', '?')
+emb    = kv.get(f'{arch}.embedding_length') or kv.get('llama.embedding_length')
+params = kv.get('general.parameter_count')
+
+# Dominant weight tensor type → quantization name
+quant = '?'
+if weight_types:
+    dominant = Counter(weight_types).most_common(1)[0][0]
+    quant = GGML_TYPES.get(dominant, f'type_{dominant}')
+
+def fmt_params(n):
+    if n is None: return None
+    if n >= 1e12: return f'{n/1e12:.1f}T'
+    if n >= 1e9:  return f'{n/1e9:.1f}B'
+    if n >= 1e6:  return f'{n/1e6:.1f}M'
+    return str(n)
+
+W = 20
+print(f"  Model")
+print(f"    {'architecture':<{W}} {arch}")
+p = fmt_params(params)
+if p: print(f"    {'parameters':<{W}} {p}")
+print(f"    {'context length':<{W}} {ctx}")
+if emb: print(f"    {'embedding length':<{W}} {emb}")
+print(f"    {'quantization':<{W}} {quant}")
+print(f"    {'file size':<{W}} {os.path.getsize(path) / 1024**3:.2f} GB")
+
+# Generation parameters stored in GGUF metadata (rare but possible)
+gen_params = {}
+for k in ('temperature', 'top_k', 'top_p', 'repeat_penalty'):
+    if k in kv:
+        gen_params[k] = kv[k]
+
+if gen_params:
+    print()
+    print(f"  Parameters")
+    for k, v in gen_params.items():
+        print(f"    {k:<{W}} {v}")
+
+# Tokenizer info
+tok_model = kv.get('tokenizer.ggml.model')
+if tok_model:
+    print()
+    print(f"  Tokenizer")
+    print(f"    {'model':<{W}} {tok_model}")
+    vocab = kv.get('tokenizer.ggml.tokens')
+    if isinstance(vocab, list):
+        print(f"    {'vocab size':<{W}} {len(vocab)}")
+PYEOF
+}
+
 cmd_ps() {
     echo "Running llama processes:"
     pgrep -la "llama" 2>/dev/null || echo "  (none)"
@@ -224,6 +410,7 @@ COMMANDS
   pull  <spec>              Download a GGUF model from HuggingFace
   serve [model] [-- args]   Start OpenAI-compatible API server
   list                      List downloaded models
+  show  <model>             Show model metadata
   rm    <model>             Delete a model
   ps                        Show running llama processes
   help                      Show this message
@@ -249,7 +436,7 @@ ENVIRONMENT
   LM_HOME          Storage dir        (default: ~/.lm)
   LM_SERVER_PORT   API server port    (default: 1234)
   LM_SERVER_HOST   API server host    (default: 0.0.0.0)
-  LM_CTX_SIZE      Context window     (default: 4096)
+  LM_CTX_SIZE      Context window     (default: read from GGUF, fallback 4096)
   LM_GPU_LAYERS    GPU offload layers (default: -1 = all)
   LM_THREADS       CPU threads        (default: auto)
 EOF
@@ -264,7 +451,9 @@ case "$cmd" in
     run)          cmd_run   "$@" ;;
     pull)         cmd_pull  "$@" ;;
     serve)        cmd_serve "$@" ;;
-    list|ls|ps)   cmd_"${cmd/ls/list}" "$@" ;;
+    show)         cmd_show  "$@" ;;
+    list|ls)      cmd_list  "$@" ;;
+    ps)           cmd_ps    "$@" ;;
     rm|remove)    cmd_rm    "$@" ;;
     help|-h|--help) cmd_help ;;
     *) die "Unknown command: '$cmd'. Run: lm help" ;;
