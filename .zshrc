@@ -122,8 +122,6 @@ if [[ "$(uname -s)" == "Darwin" ]]; then
   }
 fi
 
-alias ash="autossh -M 0 -N -o \"ServerAliveInterval 30\" -o \"ServerAliveCountMax 3\""
-alias ash8000="ash -R 8000:localhost:8000"
 alias claude="claude --permission-mode bypassPermissions"
 alias k="kubectl"
 alias ll="ls -l"
