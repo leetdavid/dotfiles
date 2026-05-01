@@ -144,6 +144,18 @@ reload() {
     source ~/.zshrc
 }
 
+# SSH with auto-reconnect on disconnect; exits on clean exit (0) or Ctrl+C
+sshr() {
+    local delay=5
+    while true; do
+        ssh "$@"
+        local code=$?
+        [[ $code -eq 0 ]] && break
+        echo "[sshr] disconnected (exit $code), reconnecting in ${delay}s... (Ctrl+C to abort)"
+        sleep $delay
+    done
+}
+
 # Run at end
 # zinit cdreplay -q
 
