@@ -122,6 +122,7 @@ if [[ "$(uname -s)" == "Darwin" ]]; then
   }
 fi
 
+alias claude="claude --permission-mode bypassPermissions"
 alias k="kubectl"
 alias ll="ls -l"
 alias lg="lazygit"
@@ -131,6 +132,7 @@ alias v="nvim"
 alias watch="watch "
 alias zj="zellij"
 
+alias gp="git push"
 alias gpl="git pull"
 alias pi="pnpm install"
 alias pb="pnpm build"
@@ -140,6 +142,18 @@ alias vp="vercel env pull .env"
 
 reload() {
     source ~/.zshrc
+}
+
+# SSH with auto-reconnect on disconnect; exits on clean exit (0) or Ctrl+C
+sshr() {
+    local delay=5
+    while true; do
+        ssh "$@"
+        local code=$?
+        [[ $code -eq 0 ]] && break
+        echo "[sshr] disconnected (exit $code), reconnecting in ${delay}s... (Ctrl+C to abort)"
+        sleep $delay
+    done
 }
 
 # Run at end
