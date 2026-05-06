@@ -132,6 +132,7 @@ alias v="nvim"
 alias watch="watch "
 alias zj="zellij"
 
+alias ppi="command pi"
 alias gp="git push"
 alias gpl="git pull"
 alias pi="pnpm install"
@@ -154,6 +155,31 @@ sshr() {
         echo "[sshr] disconnected (exit $code), reconnecting in ${delay}s... (Ctrl+C to abort)"
         sleep $delay
     done
+}
+
+# Run any command and restart it 3s after exit; Ctrl+C to stop
+rerun() {
+    local delay=3
+    while true; do
+        "$@"
+        local code=$?
+        [[ $code -eq 130 ]] && return 0
+        echo "[rerun] exited (code $code), restarting in ${delay}s... (Ctrl+C to stop)"
+        sleep "$delay"
+    done
+}
+
+# Kill the process listening on a TCP port (default: 3000)
+kill-port() {
+    local port=${1:-3000}
+    local pid
+    pid=$(lsof -ti tcp:"$port")
+    if [[ -z "$pid" ]]; then
+        echo "[kill-port] nothing running on port $port"
+        return 1
+    fi
+    kill -9 $pid
+    echo "[kill-port] killed PID $pid on port $port"
 }
 
 # Run at end
