@@ -46,6 +46,8 @@ if [ "$MSYSTEM" = "MINGW64" ]; then
     cp ~/dotfiles/.zshrc /c/Users/david/.zshrc
     echo "Installed .zshrc to ~/.zshrc and /c/Users/david/.zshrc"
   }
+  export PATH="/c/users/david/.local/bin:$PATH"
+  export PATH=$PATH:/c/ProgramData/chocolatey/bin
 fi
 
 # If on Linux, use linuxbrew with sudo
@@ -130,6 +132,7 @@ if [[ "$(uname -s)" == "Darwin" ]]; then
   }
 fi
 
+alias claude="claude --permission-mode bypassPermissions"
 alias k="kubectl"
 alias ll="ls -l"
 alias lg="lazygit"
@@ -139,6 +142,8 @@ alias v="nvim"
 alias watch="watch "
 alias zj="zellij"
 
+alias ppi="command pi"
+alias gp="git push"
 alias gpl="git pull"
 alias pi="pnpm install"
 alias pb="pnpm build"
@@ -155,3 +160,6 @@ reload() {
 
 # opencode
 export PATH=/Users/david/.opencode/bin:$PATH
+
+# bun completions
+[ -s "/Users/david/.bun/_bun" ] && source "/Users/david/.bun/_bun"
