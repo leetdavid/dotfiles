@@ -145,45 +145,11 @@ reload() {
     source ~/.zshrc
 }
 
-# SSH with auto-reconnect on disconnect; exits on clean exit (0) or Ctrl+C
-sshr() {
-    local delay=5
-    while true; do
-        ssh "$@"
-        local code=$?
-        [[ $code -eq 0 ]] && break
-        echo "[sshr] disconnected (exit $code), reconnecting in ${delay}s... (Ctrl+C to abort)"
-        sleep $delay
-    done
-}
-
-# Run any command and restart it 3s after exit; Ctrl+C to stop
-rerun() {
-    local delay=3
-    while true; do
-        "$@"
-        local code=$?
-        [[ $code -eq 130 ]] && return 0
-        echo "[rerun] exited (code $code), restarting in ${delay}s... (Ctrl+C to stop)"
-        sleep "$delay"
-    done
-}
-
-# Kill the process listening on a TCP port (default: 3000)
-kill-port() {
-    local port=${1:-3000}
-    local pid
-    pid=$(lsof -ti tcp:"$port")
-    if [[ -z "$pid" ]]; then
-        echo "[kill-port] nothing running on port $port"
-        return 1
-    fi
-    kill -9 $pid
-    echo "[kill-port] killed PID $pid on port $port"
-}
-
 # Run at end
 # zinit cdreplay -q
 
 # opencode
 export PATH=/Users/david/.opencode/bin:$PATH
+
+# bun completions
+[ -s "/Users/david/.bun/_bun" ] && source "/Users/david/.bun/_bun"
