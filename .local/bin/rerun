@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+# rerun - Run any command and restart it 3s after exit; Ctrl+C to stop
+
+set -u
+
+if [[ $# -eq 0 ]]; then
+    echo "Usage: rerun <command> [args...]" >&2
+    exit 2
+fi
+
+delay=3
+while true; do
+    "$@"
+    code=$?
+    [[ $code -eq 130 ]] && exit 0
+    echo "[rerun] exited (code $code), restarting in ${delay}s... (Ctrl+C to stop)"
+    sleep "$delay"
+done

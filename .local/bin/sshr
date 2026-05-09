@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+# SSH with auto-reconnect on disconnect; exits on clean exit (0) or Ctrl+C
+
+if [[ $# -eq 0 ]]; then
+    echo "Usage: sshr <ssh-args...>" >&2
+    exit 2
+fi
+
+delay=5
+while true; do
+    ssh "$@"
+    code=$?
+    [[ $code -eq 0 ]] && break
+    echo "[sshr] disconnected (exit $code), reconnecting in ${delay}s... (Ctrl+C to abort)"
+    sleep $delay
+done

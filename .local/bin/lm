@@ -1,0 +1,271 @@
+#!/usr/bin/env bash
+# lm - llama.cpp wrapper with ollama-compatible interface
+# Commands: run, pull, serve, list, rm, ps
+
+set -euo pipefail
+
+LM_HOME="${LM_HOME:-$HOME/.lm}"
+LM_MODELS_DIR="$LM_HOME/models"
+LM_SERVER_PORT="${LM_SERVER_PORT:-1234}"
+LM_SERVER_HOST="${LM_SERVER_HOST:-0.0.0.0}"
+LM_CTX_SIZE="${LM_CTX_SIZE:-256000}"
+LM_GPU_LAYERS="${LM_GPU_LAYERS:--1}"
+LM_THREADS="${LM_THREADS:-$(sysctl -n hw.ncpu 2>/dev/null || nproc 2>/dev/null || echo 4)}"
+
+mkdir -p "$LM_MODELS_DIR"
+
+# ── Helpers ────────────────────────────────────────────────────────────────
+
+die()  { echo "lm: error: $*" >&2; exit 1; }
+info() { echo "lm: $*"; }
+
+find_llama_cli() {
+    for c in llama-cli llama-main main; do
+        if command -v "$c" &>/dev/null; then echo "$c"; return; fi
+    done
+    die "llama-cli not found. Install llama.cpp and add it to PATH."
+}
+
+find_llama_server() {
+    for c in llama-server server; do
+        if command -v "$c" &>/dev/null; then echo "$c"; return; fi
+    done
+    die "llama-server not found. Install llama.cpp and add it to PATH."
+}
+
+# Resolve model name/alias to absolute .gguf path
+resolve_model() {
+    local name="$1"
+
+    # Absolute path
+    [[ "$name" == /* && -f "$name" ]] && echo "$name" && return
+
+    # Exact filename in models dir
+    [[ -f "$LM_MODELS_DIR/$name"      ]] && echo "$LM_MODELS_DIR/$name"      && return
+    [[ -f "$LM_MODELS_DIR/$name.gguf" ]] && echo "$LM_MODELS_DIR/$name.gguf" && return
+
+    # Fuzzy match (case-insensitive substring)
+    local match
+    match=$(find "$LM_MODELS_DIR" -iname "*${name}*.gguf" 2>/dev/null | sort | head -1)
+    [[ -n "$match" ]] && echo "$match" && return
+
+    die "Model '$name' not found. Run: lm pull <model>"
+}
+
+# Parse HuggingFace GGUF file list from repo API
+hf_list_ggufs() {
+    local owner="$1" repo="$2"
+    local api="https://huggingface.co/api/models/${owner}/${repo}"
+    local raw
+    raw=$(curl -fsSL "$api") || die "Failed to fetch model info from HuggingFace."
+    if command -v jq &>/dev/null; then
+        echo "$raw" | jq -r '.siblings[].rfilename' | grep '\.gguf$'
+    else
+        echo "$raw" | grep -o '"rfilename":"[^"]*\.gguf"' | sed 's/"rfilename":"//;s/"//'
+    fi
+}
+
+# ── Commands ───────────────────────────────────────────────────────────────
+
+cmd_pull() {
+    local spec="${1:-}"
+    [[ -z "$spec" ]] && die "Usage: lm pull owner/repo[:QUANT] | owner/repo/file.gguf | hf://..."
+
+    command -v curl &>/dev/null || die "'curl' is required for lm pull."
+
+    # Strip URL prefixes: https://huggingface.co/ or hf://
+    spec="${spec#https://huggingface.co/}"
+    spec="${spec#http://huggingface.co/}"
+    spec="${spec#hf://}"
+
+    # Extract optional quantization suffix (owner/repo:Q4_K_M)
+    local quant=""
+    if [[ "$spec" == *:* && "$spec" != */*.gguf ]]; then
+        quant="${spec##*:}"
+        spec="${spec%:*}"
+    fi
+
+    IFS='/' read -ra parts <<< "$spec"
+
+    local owner repo filename url dest
+
+    if [[ ${#parts[@]} -ge 3 ]]; then
+        # owner/repo/filename[/...] — explicit file
+        owner="${parts[0]}"
+        repo="${parts[1]}"
+        # Rejoin remaining parts as the filename path
+        filename=$(IFS='/'; echo "${parts[*]:2}")
+        url="https://huggingface.co/${owner}/${repo}/resolve/main/${filename}"
+        dest="$LM_MODELS_DIR/${filename##*/}"
+
+    elif [[ ${#parts[@]} -eq 2 ]]; then
+        owner="${parts[0]}"
+        repo="${parts[1]}"
+
+        info "Fetching file list for ${owner}/${repo}..."
+        local files
+        files=$(hf_list_ggufs "$owner" "$repo") || exit 1
+
+        [[ -z "$files" ]] && die "No GGUF files found in ${owner}/${repo}."
+
+        if [[ -n "$quant" ]]; then
+            filename=$(echo "$files" | grep -i "$quant" | head -1)
+            [[ -z "$filename" ]] && die "No GGUF matching '$quant'. Available:\n$files"
+        else
+            # Preference order: Q4_K_M → Q4_0 → first file
+            filename=$(echo "$files" | grep -i "Q4_K_M" | head -1)
+            [[ -z "$filename" ]] && filename=$(echo "$files" | grep -i "Q4_0" | head -1)
+            [[ -z "$filename" ]] && filename=$(echo "$files" | head -1)
+        fi
+
+        url="https://huggingface.co/${owner}/${repo}/resolve/main/${filename}"
+        dest="$LM_MODELS_DIR/${filename##*/}"
+    else
+        die "Invalid format. Use: owner/repo, owner/repo:QUANT, or owner/repo/file.gguf"
+    fi
+
+    if [[ -f "$dest" ]]; then
+        info "Already downloaded: $(basename "$dest")"
+        return
+    fi
+
+    info "Pulling $(basename "$dest")..."
+    curl -L --progress-bar -o "${dest}.tmp" "$url" \
+        && mv "${dest}.tmp" "$dest" \
+        || { rm -f "${dest}.tmp"; die "Download failed."; }
+
+    info "Saved: $dest ($(du -sh "$dest" | cut -f1))"
+}
+
+cmd_run() {
+    local model="${1:-}"
+    [[ -z "$model" ]] && die "Usage: lm run <model> [-- llama-cli-args]"
+    shift
+
+    local cli model_path
+    cli=$(find_llama_cli)
+    model_path=$(resolve_model "$model")
+
+    info "Running $(basename "$model_path")"
+    exec "$cli" \
+        -m "$model_path" \
+        -c "$LM_CTX_SIZE" \
+        -ngl "$LM_GPU_LAYERS" \
+        -t "$LM_THREADS" \
+        --conversation \
+        --color \
+        "$@"
+}
+
+cmd_serve() {
+    local model="${1:-}"
+    [[ $# -gt 0 ]] && shift
+
+    local srv model_args=()
+    srv=$(find_llama_server)
+
+    if [[ -n "$model" ]]; then
+        local model_path
+        model_path=$(resolve_model "$model")
+        model_args=(-m "$model_path")
+        info "Serving $(basename "$model_path")"
+    fi
+
+    info "llama-server listening on http://${LM_SERVER_HOST}:${LM_SERVER_PORT}"
+    exec "$srv" \
+        "${model_args[@]}" \
+        --host "$LM_SERVER_HOST" \
+        --port "$LM_SERVER_PORT" \
+        -c "$LM_CTX_SIZE" \
+        -ngl "$LM_GPU_LAYERS" \
+        -t "$LM_THREADS" \
+        "$@"
+}
+
+cmd_list() {
+    local ggufs
+    ggufs=$(find "$LM_MODELS_DIR" -name "*.gguf" 2>/dev/null | sort)
+
+    if [[ -z "$ggufs" ]]; then
+        echo "No models. Run: lm pull <model>"
+        return
+    fi
+
+    printf "%-55s %s\n" "NAME" "SIZE"
+    printf "%-55s %s\n" "----" "----"
+    while IFS= read -r f; do
+        printf "%-55s %s\n" "$(basename "$f")" "$(du -sh "$f" | cut -f1)"
+    done <<< "$ggufs"
+}
+
+cmd_rm() {
+    local model="${1:-}"
+    [[ -z "$model" ]] && die "Usage: lm rm <model>"
+    local model_path
+    model_path=$(resolve_model "$model")
+    rm "$model_path"
+    info "Removed: $(basename "$model_path")"
+}
+
+cmd_ps() {
+    echo "Running llama processes:"
+    pgrep -la "llama" 2>/dev/null || echo "  (none)"
+}
+
+cmd_help() {
+    cat <<'EOF'
+lm — llama.cpp wrapper with ollama-style interface
+
+USAGE
+  lm <command> [args]
+
+COMMANDS
+  run   <model> [-- args]   Interactive chat with a model
+  pull  <spec>              Download a GGUF model from HuggingFace
+  serve [model] [-- args]   Start OpenAI-compatible API server
+  list                      List downloaded models
+  rm    <model>             Delete a model
+  ps                        Show running llama processes
+  help                      Show this message
+
+MODEL SPEC (for pull)
+  owner/repo                Auto-picks best GGUF (prefers Q4_K_M)
+  owner/repo:QUANT          Pick by quantization name
+  owner/repo/file.gguf      Exact file
+  hf://owner/repo/...       Same, explicit scheme
+
+MODEL NAME (for run/serve/rm)
+  Filename, filename without .gguf, or fuzzy substring match
+
+EXAMPLES
+  lm pull bartowski/Llama-3.2-3B-Instruct-GGUF
+  lm pull bartowski/Llama-3.2-3B-Instruct-GGUF:Q4_K_M
+  lm pull bartowski/Llama-3.2-3B-Instruct-GGUF/Llama-3.2-3B-Instruct-Q4_K_M.gguf
+  lm run  llama-3.2-3b
+  lm serve
+  lm serve llama-3.2-3b -- --parallel 4
+
+ENVIRONMENT
+  LM_HOME          Storage dir        (default: ~/.lm)
+  LM_SERVER_PORT   API server port    (default: 1234)
+  LM_SERVER_HOST   API server host    (default: 0.0.0.0)
+  LM_CTX_SIZE      Context window     (default: 4096)
+  LM_GPU_LAYERS    GPU offload layers (default: -1 = all)
+  LM_THREADS       CPU threads        (default: auto)
+EOF
+}
+
+# ── Dispatch ───────────────────────────────────────────────────────────────
+
+cmd="${1:-help}"
+[[ $# -gt 0 ]] && shift
+
+case "$cmd" in
+    run)          cmd_run   "$@" ;;
+    pull)         cmd_pull  "$@" ;;
+    serve)        cmd_serve "$@" ;;
+    list|ls|ps)   cmd_"${cmd/ls/list}" "$@" ;;
+    rm|remove)    cmd_rm    "$@" ;;
+    help|-h|--help) cmd_help ;;
+    *) die "Unknown command: '$cmd'. Run: lm help" ;;
+esac

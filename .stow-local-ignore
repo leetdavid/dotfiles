@@ -1,3 +1,8 @@
 backup/*
 fonts/*
 ./nvim
+.git/
+README.md
+.gitignore
+docs/
+.claude/
