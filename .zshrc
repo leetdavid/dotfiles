@@ -36,6 +36,16 @@ zinit for \
 # If on Windows (MING64)
 if [ "$MSYSTEM" = "MINGW64" ]; then
   export PATH="/c/Users/david/.cargo/bin:$PATH"
+  export PATH="/c/Users/david/.local/bin:$PATH"
+  export PATH="/c/ProgramData/chocolatey/bin:$PATH"
+  export PATH="/c/Users/david/AppData/Local/Programs/Ollama:$PATH"
+  export PATH="/c/Users/david/AppData/Local/Programs/Zed/bin:$PATH"
+
+  installzshrc() {
+    cp ~/dotfiles/.zshrc ~/.zshrc
+    cp ~/dotfiles/.zshrc /c/Users/david/.zshrc
+    echo "Installed .zshrc to ~/.zshrc and /c/Users/david/.zshrc"
+  }
   export PATH="/c/users/david/.local/bin:$PATH"
   export PATH=$PATH:/c/ProgramData/chocolatey/bin
 fi
@@ -147,45 +157,11 @@ reload() {
     source ~/.zshrc
 }
 
-# SSH with auto-reconnect on disconnect; exits on clean exit (0) or Ctrl+C
-sshr() {
-    local delay=5
-    while true; do
-        ssh "$@"
-        local code=$?
-        [[ $code -eq 0 ]] && break
-        echo "[sshr] disconnected (exit $code), reconnecting in ${delay}s... (Ctrl+C to abort)"
-        sleep $delay
-    done
-}
-
-# Run any command and restart it 3s after exit; Ctrl+C to stop
-rerun() {
-    local delay=3
-    while true; do
-        "$@"
-        local code=$?
-        [[ $code -eq 130 ]] && return 0
-        echo "[rerun] exited (code $code), restarting in ${delay}s... (Ctrl+C to stop)"
-        sleep "$delay"
-    done
-}
-
-# Kill the process listening on a TCP port (default: 3000)
-kill-port() {
-    local port=${1:-3000}
-    local pid
-    pid=$(lsof -ti tcp:"$port")
-    if [[ -z "$pid" ]]; then
-        echo "[kill-port] nothing running on port $port"
-        return 1
-    fi
-    kill -9 $pid
-    echo "[kill-port] killed PID $pid on port $port"
-}
-
 # Run at end
 # zinit cdreplay -q
 
 # opencode
 export PATH=/Users/david/.opencode/bin:$PATH
+
+# bun completions
+[ -s "/Users/david/.bun/_bun" ] && source "/Users/david/.bun/_bun"

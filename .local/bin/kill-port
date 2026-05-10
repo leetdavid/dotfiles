@@ -1,0 +1,26 @@
+#!/usr/bin/env bash
+# kill processes running on a given port
+
+if [ "$1" = "-h" ] || [ "$1" = "--help" ]; then
+    printf 'Usage: kill-port [port]\n'
+    exit 0
+fi
+
+port="${1:-3000}"
+
+case "$port" in
+    ''|*[!0-9]*)
+        printf '[kill-port] invalid port: %s\n' "$port" >&2
+        exit 2
+        ;;
+esac
+
+pids="$(lsof -ti "tcp:$port")"
+
+if [ -z "$pids" ]; then
+    printf '[kill-port] nothing running on port %s\n' "$port"
+    exit 1
+fi
+
+kill -9 $pids
+printf '[kill-port] killed PID %s on port %s\n' "$(printf '%s' "$pids" | tr '\n' ' ')" "$port"
