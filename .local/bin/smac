@@ -1,3 +1,7 @@
 #!/usr/bin/env bash
 
-exec sshr mac -L 4096:localhost:4096 -L 7860:localhost:7860 -L 3000:localhost:3000
+exec sshr mac \
+    -L 4096:localhost:4096 \
+    -L 7860:localhost:7860 \
+    -L 4983:localhost:4983 \
+    -L 3000:localhost:3000
