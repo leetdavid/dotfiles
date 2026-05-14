@@ -142,6 +142,8 @@ alias v="nvim"
 alias watch="watch "
 alias zj="zellij"
 
+
+alias tf="terraform"
 alias ppi="command pi"
 alias gp="git push"
 alias gpl="git pull"

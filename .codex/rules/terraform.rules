@@ -1,0 +1,25 @@
+prefix_rule(
+    # the prefix to match
+    pattern = ["terraform", "apply"],
+    decision = "prompt",
+    justification = "terraform apply should generally be run with the VCS workflow",
+    match = [
+        "terraform apply",
+    ],
+    not_match = [
+        "terraform -chdir=prod/ apply",
+    ],
+)
+
+prefix_rule(
+    # the prefix to match
+    pattern = ["terraform", "destroy"],
+    decision = "forbidden",
+    justification = "terraform is dangerous and should generally be run manually by a human",
+    match = [
+        "terraform destroy",
+    ],
+    not_match = [
+        "terraform -chdir=prod/ destroy",
+    ],
+)
