@@ -106,6 +106,10 @@ fi
 
 # if it's macos
 if [[ "$(uname -s)" == "Darwin" ]]; then
+
+  export PATH="/opt/homebrew/share/google-cloud-sdk/bin:$PATH"
+  
+  # Low Power Mode Script
   lowpower() {
     local current target lp_status
 
