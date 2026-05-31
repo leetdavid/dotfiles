@@ -185,6 +185,11 @@ pid_is_running() {
     kill -0 "$1" >/dev/null 2>&1
 }
 
+local_port_is_listening() {
+    command -v lsof >/dev/null 2>&1 || return 1
+    lsof -nP -iTCP:"$1" -sTCP:LISTEN >/dev/null 2>&1
+}
+
 launchd_is_loaded() {
     launchctl print "$(service_target "$1")" >/dev/null 2>&1
 }
@@ -328,14 +333,13 @@ managed_service_state() {
 
 write_plist() {
     local local_port="$1"
-    local remote_port="$2"
-    local label plist out_log err_log forward_arg
+    local label plist out_log err_log script
 
     label="$(label_for "$local_port")"
     plist="$(plist_path_for "$local_port")"
     out_log="$(out_log_path_for "$local_port")"
     err_log="$(err_log_path_for "$local_port")"
-    forward_arg="$PF_BIND:$local_port:$PF_REMOTE_HOST:$remote_port"
+    script="$(process_script_path_for "$local_port")"
 
     mkdir -p "$STATE_DIR" "$LAUNCH_AGENTS_DIR"
     {
@@ -346,17 +350,9 @@ write_plist() {
         printf '  <key>Label</key><string>%s</string>\n' "$(xml_escape "$label")"
         printf '  <key>ProgramArguments</key>\n'
         printf '  <array>\n'
-        printf '    <string>/usr/bin/ssh</string>\n'
-        printf '    <string>-N</string>\n'
-        printf '    <string>-o</string><string>BatchMode=yes</string>\n'
-        printf '    <string>-o</string><string>ExitOnForwardFailure=yes</string>\n'
-        printf '    <string>-o</string><string>ServerAliveInterval=30</string>\n'
-        printf '    <string>-o</string><string>ServerAliveCountMax=3</string>\n'
-        printf '    <string>-L</string><string>%s</string>\n' "$(xml_escape "$forward_arg")"
-        printf '    <string>%s</string>\n' "$(xml_escape "$PF_HOST")"
+        printf '    <string>%s</string>\n' "$(xml_escape "$script")"
         printf '  </array>\n'
         printf '  <key>RunAtLoad</key><true/>\n'
-        printf '  <key>KeepAlive</key><true/>\n'
         printf '  <key>StandardOutPath</key><string>%s</string>\n' "$(xml_escape "$out_log")"
         printf '  <key>StandardErrorPath</key><string>%s</string>\n' "$(xml_escape "$err_log")"
         printf '%s\n' '</dict>'
@@ -384,6 +380,8 @@ write_process_script() {
         printf '%s\n' 'set -u'
         printf 'ssh_bin=%q\n' "$ssh_bin"
         printf 'forward_arg=%q\n' "$forward_arg"
+        printf 'bind_addr=%q\n' "$PF_BIND"
+        printf 'local_port=%q\n' "$local_port"
         printf 'ssh_host=%q\n' "$PF_HOST"
         printf 'out_log=%q\n' "$out_log"
         printf 'err_log=%q\n' "$err_log"
@@ -405,6 +403,10 @@ write_process_script() {
         printf '%s\n' 'printf "%s\n" "$$" >"$pid_file"'
         printf '%s\n' 'rm -f "$ssh_pid_file"'
         printf '%s\n' 'while [[ ! -f "$stop_file" ]]; do'
+        printf '%s\n' '    if command -v lsof >/dev/null 2>&1 && lsof -nP -iTCP:"$local_port" -sTCP:LISTEN >/dev/null 2>&1; then'
+        printf '%s\n' '        printf "[pf] local %s:%s is already in use; stopping supervisor\n" "$bind_addr" "$local_port" >>"$err_log"'
+        printf '%s\n' '        break'
+        printf '%s\n' '    fi'
         printf '%s\n' '    "$ssh_bin" -N -o BatchMode=yes -o ExitOnForwardFailure=yes -o ServerAliveInterval=30 -o ServerAliveCountMax=3 -L "$forward_arg" "$ssh_host" >>"$out_log" 2>>"$err_log" &'
         printf '%s\n' '    child_pid=$!'
         printf '%s\n' '    printf "%s\n" "$child_pid" >"$ssh_pid_file"'
@@ -426,7 +428,10 @@ write_process_script() {
 
 write_service() {
     case "$PF_BACKEND" in
-        launchd) write_plist "$@" ;;
+        launchd)
+            write_process_script "$@"
+            write_plist "$@"
+            ;;
         process) write_process_script "$@" ;;
     esac
 }
@@ -542,6 +547,10 @@ cmd_up() {
 
         if [[ -f "$(state_path_for "$LOCAL_PORT")" ]] && ! state_matches "$LOCAL_PORT" "$REMOTE_PORT"; then
             die "local port $LOCAL_PORT already has a different managed forward: $(existing_state_summary "$LOCAL_PORT")" 1
+        fi
+
+        if ! is_loaded "$LOCAL_PORT" && local_port_is_listening "$LOCAL_PORT"; then
+            die "local port $LOCAL_PORT is already in use" 1
         fi
 
         write_state "$LOCAL_PORT" "$REMOTE_PORT"
