@@ -9,6 +9,8 @@ SERVICE_PREFIX="com.david.pf"
 PF_HOST="${PF_HOST:-}"
 PF_REMOTE_HOST="${PF_REMOTE_HOST:-localhost}"
 PF_BIND="${PF_BIND:-127.0.0.1}"
+PF_BACKEND="${PF_BACKEND:-}"
+PF_PROCESS_RESTART_DELAY="${PF_PROCESS_RESTART_DELAY:-2}"
 
 usage() {
     printf '%s\n' \
@@ -33,7 +35,7 @@ usage_up() {
     printf '%s\n' \
         'Usage: pf [global-options] up <port|local:remote>...' \
         '' \
-        'Starts one launchd-backed forwarding service per mapping.' \
+        'Starts one managed forwarding service per mapping.' \
         'Mappings are local-first, matching Docker and ssh -L.' \
         '' \
         'Examples:' \
@@ -103,6 +105,30 @@ plist_path_for() {
     printf '%s/%s.plist' "$LAUNCH_AGENTS_DIR" "$(label_for "$1")"
 }
 
+pid_path_for() {
+    printf '%s/%s.pid' "$STATE_DIR" "$1"
+}
+
+ssh_pid_path_for() {
+    printf '%s/%s.ssh.pid' "$STATE_DIR" "$1"
+}
+
+process_script_path_for() {
+    printf '%s/%s.process.sh' "$STATE_DIR" "$1"
+}
+
+stop_path_for() {
+    printf '%s/%s.stop' "$STATE_DIR" "$1"
+}
+
+out_log_path_for() {
+    printf '%s/%s.out.log' "$STATE_DIR" "$1"
+}
+
+err_log_path_for() {
+    printf '%s/%s.err.log' "$STATE_DIR" "$1"
+}
+
 state_path_for() {
     printf '%s/%s.state' "$STATE_DIR" "$1"
 }
@@ -115,8 +141,78 @@ service_target() {
     printf '%s/%s' "$(domain)" "$(label_for "$1")"
 }
 
-is_loaded() {
+detect_backend() {
+    if [[ -n "$PF_BACKEND" ]]; then
+        case "$PF_BACKEND" in
+            launchd|process) printf '%s\n' "$PF_BACKEND" ;;
+            *) die "invalid PF_BACKEND: $PF_BACKEND. Expected launchd or process" 2 ;;
+        esac
+        return
+    fi
+
+    case "$(uname -s)" in
+        Darwin) printf 'launchd\n' ;;
+        *) printf 'process\n' ;;
+    esac
+}
+
+ensure_backend_dependencies() {
+    case "$PF_BACKEND" in
+        launchd)
+            command -v launchctl >/dev/null 2>&1 || die 'launchctl not found; set PF_BACKEND=process on systems without launchd' 1
+            [[ -x /usr/bin/ssh ]] || die 'ssh not found at /usr/bin/ssh' 1
+            ;;
+        process)
+            command -v nohup >/dev/null 2>&1 || die 'nohup not found; install coreutils before starting process-backed services' 1
+            command -v ssh >/dev/null 2>&1 || die 'ssh not found; install OpenSSH first. On Termux: pkg install openssh' 1
+            ;;
+    esac
+}
+
+read_pid_file() {
+    local path="$1"
+    local pid
+
+    [[ -f "$path" ]] || return 1
+    IFS= read -r pid <"$path" || return 1
+    case "$pid" in
+        ''|*[!0-9]*) return 1 ;;
+    esac
+    printf '%s\n' "$pid"
+}
+
+pid_is_running() {
+    kill -0 "$1" >/dev/null 2>&1
+}
+
+launchd_is_loaded() {
     launchctl print "$(service_target "$1")" >/dev/null 2>&1
+}
+
+process_is_loaded() {
+    local pid
+
+    pid="$(read_pid_file "$(pid_path_for "$1")")" || return 1
+    pid_is_running "$pid"
+}
+
+is_loaded() {
+    case "$PF_BACKEND" in
+        launchd) launchd_is_loaded "$1" ;;
+        process) process_is_loaded "$1" ;;
+    esac
+}
+
+service_state() {
+    if ! is_loaded "$1"; then
+        printf 'stopped'
+        return
+    fi
+
+    case "$PF_BACKEND" in
+        launchd) printf 'loaded' ;;
+        process) printf 'running' ;;
+    esac
 }
 
 parse_mapping() {
@@ -147,6 +243,7 @@ write_state() {
     mkdir -p "$STATE_DIR"
     {
         printf 'pf_label=%s\n' "$(label_for "$local_port")"
+        printf 'pf_backend=%s\n' "$PF_BACKEND"
         printf 'pf_local_port=%s\n' "$local_port"
         printf 'pf_remote_port=%s\n' "$remote_port"
         printf 'pf_host=%s\n' "$PF_HOST"
@@ -163,11 +260,12 @@ state_matches() {
 
     [[ -f "$state_path" ]] || return 1
 
-    local pf_label='' pf_local_port='' pf_remote_port='' pf_host='' pf_remote_host='' pf_bind=''
+    local pf_label='' pf_backend="$PF_BACKEND" pf_local_port='' pf_remote_port='' pf_host='' pf_remote_host='' pf_bind=''
     # shellcheck source=/dev/null
     . "$state_path"
 
     [[ "$local_port" == "$pf_local_port" \
+        && "$PF_BACKEND" == "$pf_backend" \
         && "$remote_port" == "$pf_remote_port" \
         && "$PF_HOST" == "$pf_host" \
         && "$PF_REMOTE_HOST" == "$pf_remote_host" \
@@ -184,10 +282,48 @@ existing_state_summary() {
         return
     fi
 
-    local pf_label='' pf_local_port='' pf_remote_port='' pf_host='' pf_remote_host='' pf_bind=''
+    local pf_label='' pf_backend="$PF_BACKEND" pf_local_port='' pf_remote_port='' pf_host='' pf_remote_host='' pf_bind=''
     # shellcheck source=/dev/null
     . "$state_path"
-    printf 'local %s -> %s:%s via %s bind %s' "$pf_local_port" "$pf_remote_host" "$pf_remote_port" "$pf_host" "$pf_bind"
+    printf 'local %s -> %s:%s via %s bind %s backend %s' "$pf_local_port" "$pf_remote_host" "$pf_remote_port" "$pf_host" "$pf_bind" "$pf_backend"
+}
+
+state_backend_for() {
+    local local_port="$1"
+    local state_path pf_label='' pf_backend="$PF_BACKEND" pf_local_port='' pf_remote_port='' pf_host='' pf_remote_host='' pf_bind=''
+    state_path="$(state_path_for "$local_port")"
+
+    if [[ -f "$state_path" ]]; then
+        # shellcheck source=/dev/null
+        . "$state_path"
+    else
+        pf_backend="$PF_BACKEND"
+    fi
+
+    case "$pf_backend" in
+        launchd|process) printf '%s\n' "$pf_backend" ;;
+        *) printf '%s\n' "$PF_BACKEND" ;;
+    esac
+}
+
+bootout_managed_service() {
+    local local_port="$1"
+    local previous_backend="$PF_BACKEND"
+
+    PF_BACKEND="$(state_backend_for "$local_port")"
+    bootout_service "$local_port"
+    PF_BACKEND="$previous_backend"
+}
+
+managed_service_state() {
+    local local_port="$1"
+    local previous_backend="$PF_BACKEND"
+    local state
+
+    PF_BACKEND="$(state_backend_for "$local_port")"
+    state="$(service_state "$local_port")"
+    PF_BACKEND="$previous_backend"
+    printf '%s' "$state"
 }
 
 write_plist() {
@@ -197,8 +333,8 @@ write_plist() {
 
     label="$(label_for "$local_port")"
     plist="$(plist_path_for "$local_port")"
-    out_log="$STATE_DIR/$local_port.out.log"
-    err_log="$STATE_DIR/$local_port.err.log"
+    out_log="$(out_log_path_for "$local_port")"
+    err_log="$(err_log_path_for "$local_port")"
     forward_arg="$PF_BIND:$local_port:$PF_REMOTE_HOST:$remote_port"
 
     mkdir -p "$STATE_DIR" "$LAUNCH_AGENTS_DIR"
@@ -212,6 +348,7 @@ write_plist() {
         printf '  <array>\n'
         printf '    <string>/usr/bin/ssh</string>\n'
         printf '    <string>-N</string>\n'
+        printf '    <string>-o</string><string>BatchMode=yes</string>\n'
         printf '    <string>-o</string><string>ExitOnForwardFailure=yes</string>\n'
         printf '    <string>-o</string><string>ServerAliveInterval=30</string>\n'
         printf '    <string>-o</string><string>ServerAliveCountMax=3</string>\n'
@@ -227,7 +364,74 @@ write_plist() {
     } >"$plist"
 }
 
-bootstrap_service() {
+write_process_script() {
+    local local_port="$1"
+    local remote_port="$2"
+    local script out_log err_log pid_file ssh_pid_file stop_file forward_arg ssh_bin
+
+    script="$(process_script_path_for "$local_port")"
+    out_log="$(out_log_path_for "$local_port")"
+    err_log="$(err_log_path_for "$local_port")"
+    pid_file="$(pid_path_for "$local_port")"
+    ssh_pid_file="$(ssh_pid_path_for "$local_port")"
+    stop_file="$(stop_path_for "$local_port")"
+    forward_arg="$PF_BIND:$local_port:$PF_REMOTE_HOST:$remote_port"
+    ssh_bin="$(command -v ssh)"
+
+    mkdir -p "$STATE_DIR"
+    {
+        printf '%s\n' '#!/usr/bin/env bash'
+        printf '%s\n' 'set -u'
+        printf 'ssh_bin=%q\n' "$ssh_bin"
+        printf 'forward_arg=%q\n' "$forward_arg"
+        printf 'ssh_host=%q\n' "$PF_HOST"
+        printf 'out_log=%q\n' "$out_log"
+        printf 'err_log=%q\n' "$err_log"
+        printf 'pid_file=%q\n' "$pid_file"
+        printf 'ssh_pid_file=%q\n' "$ssh_pid_file"
+        printf 'stop_file=%q\n' "$stop_file"
+        printf 'restart_delay=%q\n' "$PF_PROCESS_RESTART_DELAY"
+        printf '%s\n' 'child_pid='
+        printf '%s\n' 'stop() {'
+        printf '%s\n' '    touch "$stop_file"'
+        printf '%s\n' '    if [[ -n "${child_pid:-}" ]]; then'
+        printf '%s\n' '        kill "$child_pid" >/dev/null 2>&1 || true'
+        printf '%s\n' '        wait "$child_pid" >/dev/null 2>&1 || true'
+        printf '%s\n' '    fi'
+        printf '%s\n' '    rm -f "$pid_file" "$ssh_pid_file" "$stop_file"'
+        printf '%s\n' '    exit 0'
+        printf '%s\n' '}'
+        printf '%s\n' 'trap stop INT TERM'
+        printf '%s\n' 'printf "%s\n" "$$" >"$pid_file"'
+        printf '%s\n' 'rm -f "$ssh_pid_file"'
+        printf '%s\n' 'while [[ ! -f "$stop_file" ]]; do'
+        printf '%s\n' '    "$ssh_bin" -N -o BatchMode=yes -o ExitOnForwardFailure=yes -o ServerAliveInterval=30 -o ServerAliveCountMax=3 -L "$forward_arg" "$ssh_host" >>"$out_log" 2>>"$err_log" &'
+        printf '%s\n' '    child_pid=$!'
+        printf '%s\n' '    printf "%s\n" "$child_pid" >"$ssh_pid_file"'
+        printf '%s\n' '    wait "$child_pid"'
+        printf '%s\n' '    status=$?'
+        printf '%s\n' '    child_pid='
+        printf '%s\n' '    rm -f "$ssh_pid_file"'
+        printf '%s\n' '    [[ -f "$stop_file" ]] && break'
+        printf '%s\n' '    printf "[pf] ssh exited with status %s at %s\n" "$status" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >>"$err_log"'
+        printf '%s\n' '    sleep "$restart_delay" &'
+        printf '%s\n' '    child_pid=$!'
+        printf '%s\n' '    wait "$child_pid" >/dev/null 2>&1 || true'
+        printf '%s\n' '    child_pid='
+        printf '%s\n' 'done'
+        printf '%s\n' 'rm -f "$pid_file" "$ssh_pid_file" "$stop_file"'
+    } >"$script"
+    chmod 700 "$script"
+}
+
+write_service() {
+    case "$PF_BACKEND" in
+        launchd) write_plist "$@" ;;
+        process) write_process_script "$@" ;;
+    esac
+}
+
+bootstrap_launchd_service() {
     local local_port="$1"
     local plist
     plist="$(plist_path_for "$local_port")"
@@ -239,7 +443,29 @@ bootstrap_service() {
     launchctl bootstrap "$(domain)" "$plist"
 }
 
-bootout_service() {
+bootstrap_process_service() {
+    local local_port="$1"
+    local script pid
+    script="$(process_script_path_for "$local_port")"
+
+    if is_loaded "$local_port"; then
+        return
+    fi
+
+    rm -f "$(pid_path_for "$local_port")" "$(ssh_pid_path_for "$local_port")" "$(stop_path_for "$local_port")"
+    nohup "$script" >/dev/null 2>&1 &
+    pid=$!
+    printf '%s\n' "$pid" >"$(pid_path_for "$local_port")"
+}
+
+bootstrap_service() {
+    case "$PF_BACKEND" in
+        launchd) bootstrap_launchd_service "$@" ;;
+        process) bootstrap_process_service "$@" ;;
+    esac
+}
+
+bootout_launchd_service() {
     local local_port="$1"
     local plist
     plist="$(plist_path_for "$local_port")"
@@ -247,6 +473,48 @@ bootout_service() {
     if is_loaded "$local_port" || [[ -f "$plist" ]]; then
         launchctl bootout "$(domain)" "$plist" >/dev/null 2>&1 || true
     fi
+}
+
+bootout_process_service() {
+    local local_port="$1"
+    local pid ssh_pid i
+
+    mkdir -p "$STATE_DIR"
+    touch "$(stop_path_for "$local_port")"
+
+    if pid="$(read_pid_file "$(pid_path_for "$local_port")")"; then
+        kill "$pid" >/dev/null 2>&1 || true
+    fi
+    if ssh_pid="$(read_pid_file "$(ssh_pid_path_for "$local_port")")"; then
+        kill "$ssh_pid" >/dev/null 2>&1 || true
+    fi
+
+    for i in 1 2 3 4 5; do
+        if ! is_loaded "$local_port"; then
+            break
+        fi
+        sleep 0.2
+    done
+
+    if [[ -n "${pid:-}" ]] && pid_is_running "$pid"; then
+        kill -KILL "$pid" >/dev/null 2>&1 || true
+    fi
+    if [[ -n "${ssh_pid:-}" ]] && pid_is_running "$ssh_pid"; then
+        kill -KILL "$ssh_pid" >/dev/null 2>&1 || true
+    fi
+
+    rm -f "$(pid_path_for "$local_port")" "$(ssh_pid_path_for "$local_port")" "$(process_script_path_for "$local_port")" "$(stop_path_for "$local_port")"
+}
+
+bootout_service() {
+    case "$PF_BACKEND" in
+        launchd) bootout_launchd_service "$@" ;;
+        process) bootout_process_service "$@" ;;
+    esac
+}
+
+remove_service_files() {
+    rm -f "$(plist_path_for "$1")" "$(process_script_path_for "$1")" "$(pid_path_for "$1")" "$(ssh_pid_path_for "$1")" "$(stop_path_for "$1")"
 }
 
 cmd_up() {
@@ -262,10 +530,12 @@ cmd_up() {
         }
     done
 
+    PF_BACKEND="$(detect_backend)"
     [[ -n "$PF_HOST" ]] || die "missing PF_HOST. Set it in $CONFIG_FILE or pass --host <ssh-host>. Example: pf --host mac up 3000" 2
     validate_name "$PF_HOST" 'host'
     validate_name "$PF_REMOTE_HOST" 'remote host'
     validate_name "$PF_BIND" 'bind address'
+    ensure_backend_dependencies
 
     for spec in "$@"; do
         parse_mapping "$spec"
@@ -275,7 +545,7 @@ cmd_up() {
         fi
 
         write_state "$LOCAL_PORT" "$REMOTE_PORT"
-        write_plist "$LOCAL_PORT" "$REMOTE_PORT"
+        write_service "$LOCAL_PORT" "$REMOTE_PORT"
         bootstrap_service "$LOCAL_PORT"
 
         if is_loaded "$LOCAL_PORT"; then
@@ -297,6 +567,8 @@ cmd_down() {
         exit 0
     fi
 
+    PF_BACKEND="$(detect_backend)"
+
     if [[ "$1" == '--all' ]]; then
         [[ $# -eq 1 ]] || die 'down --all does not accept port arguments' 2
 
@@ -305,8 +577,9 @@ cmd_down() {
         for state_file in "$STATE_DIR"/*.state; do
             local_port="${state_file##*/}"
             local_port="${local_port%.state}"
-            bootout_service "$local_port"
-            rm -f "$(plist_path_for "$local_port")" "$(state_path_for "$local_port")"
+            bootout_managed_service "$local_port"
+            remove_service_files "$local_port"
+            rm -f "$(state_path_for "$local_port")"
             printf '[pf] down local %s\n' "$local_port"
         done
         shopt -u nullglob
@@ -316,8 +589,9 @@ cmd_down() {
     local port
     for port in "$@"; do
         validate_port "$port"
-        bootout_service "$port"
-        rm -f "$(plist_path_for "$port")" "$(state_path_for "$port")"
+        bootout_managed_service "$port"
+        remove_service_files "$port"
+        rm -f "$(state_path_for "$port")"
         printf '[pf] down local %s\n' "$port"
     done
 }
@@ -338,22 +612,20 @@ cmd_ls() {
         die 'ls does not accept arguments' 2
     fi
 
+    PF_BACKEND="$(detect_backend)"
     mkdir -p "$STATE_DIR"
 
     printf '%-8s %-22s %-18s %-16s %s\n' 'LOCAL' 'REMOTE' 'HOST' 'BIND' 'STATE'
 
-    local state_file local_port pf_label='' pf_local_port='' pf_remote_port='' pf_host='' pf_remote_host='' pf_bind='' state
+    local state_file local_port pf_label='' pf_backend='' pf_local_port='' pf_remote_port='' pf_host='' pf_remote_host='' pf_bind='' state
     shopt -s nullglob
     for state_file in "$STATE_DIR"/*.state; do
         local_port="${state_file##*/}"
         local_port="${local_port%.state}"
-        pf_label='' pf_local_port='' pf_remote_port='' pf_host='' pf_remote_host='' pf_bind=''
+        pf_label='' pf_backend='' pf_local_port='' pf_remote_port='' pf_host='' pf_remote_host='' pf_bind=''
         # shellcheck source=/dev/null
         . "$state_file"
-        state='stopped'
-        if is_loaded "$local_port"; then
-            state='loaded'
-        fi
+        state="$(managed_service_state "$local_port")"
         printf '%-8s %-22s %-18s %-16s %s\n' "$pf_local_port" "$pf_remote_host:$pf_remote_port" "$pf_host" "$pf_bind" "$state"
     done
     shopt -u nullglob

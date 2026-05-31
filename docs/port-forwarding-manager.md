@@ -38,10 +38,20 @@ pf --host mac --remote-host localhost --bind 127.0.0.1 up 3000
 
 ## Lifecycle
 
-Each mapping is managed as its own `launchd` user service. `pf up` is idempotent when the existing service has the same mapping and profile. If the same local port is already managed with different settings, `pf up` fails instead of silently replacing it.
+Each mapping is managed as its own forwarding service. Backend selection is automatic: on macOS, `pf` uses a per-mapping `launchd` user service. On Termux and other non-macOS shells, `pf` uses a small background supervisor process with pid files under `~/.local/state/pf`; the supervisor restarts `ssh` if it exits. Set `PF_BACKEND=launchd` or `PF_BACKEND=process` only when you need to override detection.
+
+Termux needs OpenSSH installed:
+
+```text
+pkg install openssh
+```
+
+Because forwards run in the background, SSH must be able to connect non-interactively with keys and known hosts already set up.
+
+`pf up` is idempotent when the existing service has the same mapping, profile, and service backend. If the same local port is already managed with different settings, `pf up` fails instead of silently replacing it.
 
 `pf down 3000` stops the service for local port `3000`. `pf down --all` stops every managed forwarding service.
 
 ## Listing
 
-`pf ls` shows managed local ports, remote targets, SSH hosts, bind addresses, and launchd state.
+`pf ls` shows managed local ports, remote targets, SSH hosts, bind addresses, and service state. Launchd-backed services show `loaded`; process-backed services show `running`.

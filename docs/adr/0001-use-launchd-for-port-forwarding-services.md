@@ -1,6 +1,8 @@
-# Use launchd for port forwarding services
+# Use launchd for macOS port forwarding services
 
-Port forwards should behave like durable local services, not terminal-bound SSH sessions. We use per-mapping `launchd` user services with keepalive so forwards survive transient SSH drops and can be stopped intentionally with `pf down`, accepting macOS-specific implementation in exchange for reliable lifecycle management.
+Port forwards should behave like durable local services, not terminal-bound SSH sessions. On macOS, we use per-mapping `launchd` user services with keepalive so forwards survive transient SSH drops and can be stopped intentionally with `pf down`.
+
+Termux does not have `launchctl`, so `pf` uses a per-mapping background supervisor process there. The process backend keeps pid files in the `pf` state directory and restarts `ssh` until `pf down` creates the stop signal and terminates the supervisor.
 
 ## Considered Options
 
