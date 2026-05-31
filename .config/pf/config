@@ -1,0 +1,3 @@
+PF_HOST=mac
+PF_REMOTE_HOST=localhost
+PF_BIND=127.0.0.1

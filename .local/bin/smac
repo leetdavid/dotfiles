@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-exec sshr mac \
+rerun ssh mac \
     -L 4096:localhost:4096 \
     -L 7860:localhost:7860 \
     -L 7861:localhost:7861 \

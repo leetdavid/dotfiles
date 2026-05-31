@@ -23,7 +23,7 @@
   },
   "plugin": [
     "@mohak34/opencode-notifier@latest",
-    "@warp-dot-dev/opencode-warp",
+    "@warp-dot-dev/opencode-warp@0.1.5",
   ],
   "autoupdate": true,
 }
