@@ -5,4 +5,5 @@ fonts/*
 README.md
 .gitignore
 docs/
+docs/*
 .claude/

@@ -18,16 +18,21 @@ usage() {
         '' \
         'Commands:' \
         '  up <port|local:remote>...   Start forwarding services' \
+        '  ensure <port|local:remote>... Ensure forwarding services are running' \
         '  down <port>...              Stop forwarding services by local port' \
         '  down --all                  Stop all managed forwarding services' \
+        '  restart <port>...           Restart forwarding services by local port' \
+        '  restart --all               Restart all managed forwarding services' \
         '  ls                          List managed forwarding services' \
         '' \
         'Examples:' \
         '  pf up 3000' \
         '  pf up 3000:5000' \
+        '  pf ensure 3000 4983 8000:8080' \
         '  pf up 3000 4983 8000:8080' \
         '  pf down 3000' \
         '  pf down --all' \
+        '  pf restart --all' \
         '  pf --host mac --remote-host localhost --bind 127.0.0.1 up 3000'
 }
 
@@ -44,6 +49,18 @@ usage_up() {
         '  pf up 3000 4983 8000:8080'
 }
 
+usage_ensure() {
+    printf '%s\n' \
+        'Usage: pf [global-options] ensure <port|local:remote>...' \
+        '' \
+        'Starts missing forwarding services and restarts existing managed services.' \
+        'Mappings are local-first, matching Docker and ssh -L.' \
+        '' \
+        'Examples:' \
+        '  pf ensure 3000' \
+        '  pf ensure 3000 4983 8000:8080'
+}
+
 usage_down() {
     printf '%s\n' \
         'Usage: pf down <port>...' \
@@ -52,6 +69,18 @@ usage_down() {
         'Examples:' \
         '  pf down 3000' \
         '  pf down --all'
+}
+
+usage_restart() {
+    printf '%s\n' \
+        'Usage: pf restart <port>...' \
+        '       pf restart --all' \
+        '' \
+        'Restarts existing managed forwarding services from saved state.' \
+        '' \
+        'Examples:' \
+        '  pf restart 3000' \
+        '  pf restart --all'
 }
 
 die() {
@@ -185,6 +214,11 @@ pid_is_running() {
     kill -0 "$1" >/dev/null 2>&1
 }
 
+local_port_is_listening() {
+    command -v lsof >/dev/null 2>&1 || return 1
+    lsof -nP -iTCP:"$1" -sTCP:LISTEN >/dev/null 2>&1
+}
+
 launchd_is_loaded() {
     launchctl print "$(service_target "$1")" >/dev/null 2>&1
 }
@@ -288,6 +322,28 @@ existing_state_summary() {
     printf 'local %s -> %s:%s via %s bind %s backend %s' "$pf_local_port" "$pf_remote_host" "$pf_remote_port" "$pf_host" "$pf_bind" "$pf_backend"
 }
 
+load_state_for_restart() {
+    local local_port="$1"
+    local state_path pf_label='' pf_backend='' pf_local_port='' pf_remote_port='' pf_host='' pf_remote_host='' pf_bind=''
+    state_path="$(state_path_for "$local_port")"
+
+    [[ -f "$state_path" ]] || die "local port $local_port has no managed state. Start it first with: pf up $local_port" 1
+
+    # shellcheck source=/dev/null
+    . "$state_path"
+
+    case "$pf_backend" in
+        launchd|process) PF_BACKEND="$pf_backend" ;;
+        *) die "local port $local_port has invalid backend in managed state: $pf_backend" 1 ;;
+    esac
+
+    PF_HOST="$pf_host"
+    PF_REMOTE_HOST="$pf_remote_host"
+    PF_BIND="$pf_bind"
+    LOCAL_PORT="$pf_local_port"
+    REMOTE_PORT="$pf_remote_port"
+}
+
 state_backend_for() {
     local local_port="$1"
     local state_path pf_label='' pf_backend="$PF_BACKEND" pf_local_port='' pf_remote_port='' pf_host='' pf_remote_host='' pf_bind=''
@@ -328,14 +384,13 @@ managed_service_state() {
 
 write_plist() {
     local local_port="$1"
-    local remote_port="$2"
-    local label plist out_log err_log forward_arg
+    local label plist out_log err_log script
 
     label="$(label_for "$local_port")"
     plist="$(plist_path_for "$local_port")"
     out_log="$(out_log_path_for "$local_port")"
     err_log="$(err_log_path_for "$local_port")"
-    forward_arg="$PF_BIND:$local_port:$PF_REMOTE_HOST:$remote_port"
+    script="$(process_script_path_for "$local_port")"
 
     mkdir -p "$STATE_DIR" "$LAUNCH_AGENTS_DIR"
     {
@@ -346,17 +401,9 @@ write_plist() {
         printf '  <key>Label</key><string>%s</string>\n' "$(xml_escape "$label")"
         printf '  <key>ProgramArguments</key>\n'
         printf '  <array>\n'
-        printf '    <string>/usr/bin/ssh</string>\n'
-        printf '    <string>-N</string>\n'
-        printf '    <string>-o</string><string>BatchMode=yes</string>\n'
-        printf '    <string>-o</string><string>ExitOnForwardFailure=yes</string>\n'
-        printf '    <string>-o</string><string>ServerAliveInterval=30</string>\n'
-        printf '    <string>-o</string><string>ServerAliveCountMax=3</string>\n'
-        printf '    <string>-L</string><string>%s</string>\n' "$(xml_escape "$forward_arg")"
-        printf '    <string>%s</string>\n' "$(xml_escape "$PF_HOST")"
+        printf '    <string>%s</string>\n' "$(xml_escape "$script")"
         printf '  </array>\n'
         printf '  <key>RunAtLoad</key><true/>\n'
-        printf '  <key>KeepAlive</key><true/>\n'
         printf '  <key>StandardOutPath</key><string>%s</string>\n' "$(xml_escape "$out_log")"
         printf '  <key>StandardErrorPath</key><string>%s</string>\n' "$(xml_escape "$err_log")"
         printf '%s\n' '</dict>'
@@ -384,6 +431,8 @@ write_process_script() {
         printf '%s\n' 'set -u'
         printf 'ssh_bin=%q\n' "$ssh_bin"
         printf 'forward_arg=%q\n' "$forward_arg"
+        printf 'bind_addr=%q\n' "$PF_BIND"
+        printf 'local_port=%q\n' "$local_port"
         printf 'ssh_host=%q\n' "$PF_HOST"
         printf 'out_log=%q\n' "$out_log"
         printf 'err_log=%q\n' "$err_log"
@@ -405,6 +454,10 @@ write_process_script() {
         printf '%s\n' 'printf "%s\n" "$$" >"$pid_file"'
         printf '%s\n' 'rm -f "$ssh_pid_file"'
         printf '%s\n' 'while [[ ! -f "$stop_file" ]]; do'
+        printf '%s\n' '    if command -v lsof >/dev/null 2>&1 && lsof -nP -iTCP:"$local_port" -sTCP:LISTEN >/dev/null 2>&1; then'
+        printf '%s\n' '        printf "[pf] local %s:%s is already in use; stopping supervisor\n" "$bind_addr" "$local_port" >>"$err_log"'
+        printf '%s\n' '        break'
+        printf '%s\n' '    fi'
         printf '%s\n' '    "$ssh_bin" -N -o BatchMode=yes -o ExitOnForwardFailure=yes -o ServerAliveInterval=30 -o ServerAliveCountMax=3 -L "$forward_arg" "$ssh_host" >>"$out_log" 2>>"$err_log" &'
         printf '%s\n' '    child_pid=$!'
         printf '%s\n' '    printf "%s\n" "$child_pid" >"$ssh_pid_file"'
@@ -426,7 +479,10 @@ write_process_script() {
 
 write_service() {
     case "$PF_BACKEND" in
-        launchd) write_plist "$@" ;;
+        launchd)
+            write_process_script "$@"
+            write_plist "$@"
+            ;;
         process) write_process_script "$@" ;;
     esac
 }
@@ -544,6 +600,58 @@ cmd_up() {
             die "local port $LOCAL_PORT already has a different managed forward: $(existing_state_summary "$LOCAL_PORT")" 1
         fi
 
+        if ! is_loaded "$LOCAL_PORT" && local_port_is_listening "$LOCAL_PORT"; then
+            die "local port $LOCAL_PORT is already in use" 1
+        fi
+
+        write_state "$LOCAL_PORT" "$REMOTE_PORT"
+        write_service "$LOCAL_PORT" "$REMOTE_PORT"
+        bootstrap_service "$LOCAL_PORT"
+
+        if is_loaded "$LOCAL_PORT"; then
+            printf '[pf] up local %s -> %s:%s via %s\n' "$LOCAL_PORT" "$PF_REMOTE_HOST" "$REMOTE_PORT" "$PF_HOST"
+        else
+            die "failed to start local port $LOCAL_PORT; check $STATE_DIR/$LOCAL_PORT.err.log" 1
+        fi
+    done
+}
+
+cmd_ensure() {
+    [[ $# -gt 0 ]] || {
+        usage_ensure >&2
+        exit 2
+    }
+
+    for spec in "$@"; do
+        [[ "$spec" == '-h' || "$spec" == '--help' ]] && {
+            usage_ensure
+            exit 0
+        }
+    done
+
+    PF_BACKEND="$(detect_backend)"
+    [[ -n "$PF_HOST" ]] || die "missing PF_HOST. Set it in $CONFIG_FILE or pass --host <ssh-host>. Example: pf --host mac ensure 3000" 2
+    validate_name "$PF_HOST" 'host'
+    validate_name "$PF_REMOTE_HOST" 'remote host'
+    validate_name "$PF_BIND" 'bind address'
+    ensure_backend_dependencies
+
+    for spec in "$@"; do
+        parse_mapping "$spec"
+
+        if [[ -f "$(state_path_for "$LOCAL_PORT")" ]]; then
+            if state_matches "$LOCAL_PORT" "$REMOTE_PORT"; then
+                restart_port "$LOCAL_PORT"
+                continue
+            fi
+
+            die "local port $LOCAL_PORT already has a different managed forward: $(existing_state_summary "$LOCAL_PORT")" 1
+        fi
+
+        if local_port_is_listening "$LOCAL_PORT"; then
+            die "local port $LOCAL_PORT is already in use" 1
+        fi
+
         write_state "$LOCAL_PORT" "$REMOTE_PORT"
         write_service "$LOCAL_PORT" "$REMOTE_PORT"
         bootstrap_service "$LOCAL_PORT"
@@ -593,6 +701,67 @@ cmd_down() {
         remove_service_files "$port"
         rm -f "$(state_path_for "$port")"
         printf '[pf] down local %s\n' "$port"
+    done
+}
+
+restart_port() {
+    local port="$1"
+
+    validate_port "$port"
+    load_state_for_restart "$port"
+    ensure_backend_dependencies
+
+    bootout_service "$LOCAL_PORT"
+
+    if local_port_is_listening "$LOCAL_PORT"; then
+        die "local port $LOCAL_PORT is already in use" 1
+    fi
+
+    write_service "$LOCAL_PORT" "$REMOTE_PORT"
+    bootstrap_service "$LOCAL_PORT"
+
+    if is_loaded "$LOCAL_PORT"; then
+        printf '[pf] restarted local %s -> %s:%s via %s\n' "$LOCAL_PORT" "$PF_REMOTE_HOST" "$REMOTE_PORT" "$PF_HOST"
+    else
+        die "failed to restart local port $LOCAL_PORT; check $STATE_DIR/$LOCAL_PORT.err.log" 1
+    fi
+}
+
+cmd_restart() {
+    [[ $# -gt 0 ]] || {
+        usage_restart >&2
+        exit 2
+    }
+
+    if [[ "$1" == '-h' || "$1" == '--help' ]]; then
+        usage_restart
+        exit 0
+    fi
+
+    PF_BACKEND="$(detect_backend)"
+
+    if [[ "$1" == '--all' ]]; then
+        [[ $# -eq 1 ]] || die 'restart --all does not accept port arguments' 2
+
+        local state_file local_port restarted=0
+        shopt -s nullglob
+        for state_file in "$STATE_DIR"/*.state; do
+            local_port="${state_file##*/}"
+            local_port="${local_port%.state}"
+            restart_port "$local_port"
+            restarted=1
+        done
+        shopt -u nullglob
+
+        if [[ "$restarted" == 0 ]]; then
+            printf '[pf] no managed forwarding services\n'
+        fi
+        return
+    fi
+
+    local port
+    for port in "$@"; do
+        restart_port "$port"
     done
 }
 
@@ -685,7 +854,9 @@ shift
 
 case "$cmd" in
     up) cmd_up "$@" ;;
+    ensure) cmd_ensure "$@" ;;
     down) cmd_down "$@" ;;
+    restart) cmd_restart "$@" ;;
     ls|list) cmd_ls "$@" ;;
     *)
         die "unknown command: $cmd" 2
