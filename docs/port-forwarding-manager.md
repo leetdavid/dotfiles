@@ -7,9 +7,11 @@
 ```text
 pf up 3000
 pf up 3000:5000
+pf ensure 3000 4983 8000:8080
 pf up 3000 4983 8000:8080
 pf down 3000
 pf down --all
+pf restart --all
 pf ls
 ```
 
@@ -50,7 +52,11 @@ Because forwards run in the background, SSH must be able to connect non-interact
 
 `pf up` is idempotent when the existing service has the same mapping, profile, and service backend. If the same local port is already managed with different settings, `pf up` fails instead of silently replacing it.
 
+`pf ensure 3000 4983` starts missing forwarding services and restarts existing managed services with the same mappings. Use it after network changes, hibernation, or wake-from-sleep when the service may still exist but the SSH connection may be stale.
+
 `pf down 3000` stops the service for local port `3000`. `pf down --all` stops every managed forwarding service.
+
+`pf restart 3000` restarts an existing managed forwarding service from saved state. `pf restart --all` refreshes every managed forwarding service after network changes, hibernation, or wake-from-sleep without retyping the mappings.
 
 ## Listing
 
