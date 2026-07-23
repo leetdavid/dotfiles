@@ -11,6 +11,8 @@ PF_REMOTE_HOST="${PF_REMOTE_HOST:-localhost}"
 PF_BIND="${PF_BIND:-127.0.0.1}"
 PF_BACKEND="${PF_BACKEND:-}"
 PF_PROCESS_RESTART_DELAY="${PF_PROCESS_RESTART_DELAY:-2}"
+PF_CHECK_ATTEMPTS="${PF_CHECK_ATTEMPTS:-30}"
+PF_CHECK_DELAY="${PF_CHECK_DELAY:-0.5}"
 
 usage() {
     printf '%s\n' \
@@ -18,7 +20,7 @@ usage() {
         '' \
         'Commands:' \
         '  up <port|local:remote>...   Start forwarding services' \
-        '  ensure <port|local:remote>... Ensure forwarding services are running' \
+        '  check [--all|<port|local:remote>...] Check forwarding services and repair failures' \
         '  down <port>...              Stop forwarding services by local port' \
         '  down --all                  Stop all managed forwarding services' \
         '  restart <port>...           Restart forwarding services by local port' \
@@ -28,7 +30,9 @@ usage() {
         'Examples:' \
         '  pf up 3000' \
         '  pf up 3000:5000' \
-        '  pf ensure 3000 4983 8000:8080' \
+        '  pf check' \
+        '  pf check --all' \
+        '  pf check 3000 4983 8000:8080' \
         '  pf up 3000 4983 8000:8080' \
         '  pf down 3000' \
         '  pf down --all' \
@@ -49,16 +53,19 @@ usage_up() {
         '  pf up 3000 4983 8000:8080'
 }
 
-usage_ensure() {
+usage_check() {
     printf '%s\n' \
-        'Usage: pf [global-options] ensure <port|local:remote>...' \
+        'Usage: pf [global-options] check [--all|<port|local:remote>...]' \
         '' \
-        'Starts missing forwarding services and restarts existing managed services.' \
+        'Checks forwarding services and repairs failures by starting or restarting them.' \
+        'With no arguments, checks all managed forwarding services.' \
         'Mappings are local-first, matching Docker and ssh -L.' \
         '' \
         'Examples:' \
-        '  pf ensure 3000' \
-        '  pf ensure 3000 4983 8000:8080'
+        '  pf check' \
+        '  pf check --all' \
+        '  pf check 3000' \
+        '  pf check 3000 4983 8000:8080'
 }
 
 usage_down() {
@@ -104,6 +111,17 @@ validate_name() {
     esac
 }
 
+validate_current_profile() {
+    [[ -n "$PF_HOST" ]] || die "missing PF_HOST. Set it in $CONFIG_FILE or pass --host <ssh-host>. Example: pf --host mac check 3000" 2
+    validate_name "$PF_HOST" 'host'
+    validate_name "$PF_REMOTE_HOST" 'remote host'
+    validate_name "$PF_BIND" 'bind address'
+}
+
+mapping_has_remote_port() {
+    [[ "$1" == *:* ]]
+}
+
 validate_port() {
     local port="$1"
 
@@ -113,6 +131,19 @@ validate_port() {
 
     if ((port < 1 || port > 65535)); then
         die "port out of range: $port" 2
+    fi
+}
+
+validate_positive_integer() {
+    local value="$1"
+    local label="$2"
+
+    case "$value" in
+        ''|*[!0-9]*) die "invalid $label: $value" 2 ;;
+    esac
+
+    if ((value < 1)); then
+        die "$label must be at least 1: $value" 2
     fi
 }
 
@@ -217,6 +248,84 @@ pid_is_running() {
 local_port_is_listening() {
     command -v lsof >/dev/null 2>&1 || return 1
     lsof -nP -iTCP:"$1" -sTCP:LISTEN >/dev/null 2>&1
+}
+
+connect_host_for_bind() {
+    case "$1" in
+        ''|0.0.0.0|::|::0) printf 'localhost' ;;
+        *) printf '%s' "$1" ;;
+    esac
+}
+
+local_forward_accepts_connections() {
+    local host
+    host="$(connect_host_for_bind "$PF_BIND")"
+
+    if command -v nc >/dev/null 2>&1; then
+        nc -z -w 1 "$host" "$1" >/dev/null 2>&1
+        return
+    fi
+
+    if (: >"/dev/tcp/$host/$1") >/dev/null 2>&1; then
+        return 0
+    fi
+
+    local_port_is_listening "$1"
+}
+
+log_size_for() {
+    local path
+    path="$(err_log_path_for "$1")"
+
+    [[ -f "$path" ]] || {
+        printf '0'
+        return
+    }
+
+    wc -c <"$path"
+}
+
+log_has_connect_failure_since() {
+    local local_port="$1"
+    local offset="$2"
+    local path appended
+    path="$(err_log_path_for "$local_port")"
+
+    [[ -f "$path" ]] || return 1
+    appended="$(tail -c +$((offset + 1)) "$path" 2>/dev/null || true)"
+    [[ "$appended" == *'open failed: connect failed'* ]]
+}
+
+forwarded_connection_works() {
+    local local_port="$1"
+    local offset
+
+    offset="$(log_size_for "$local_port")"
+    local_forward_accepts_connections "$local_port" || return 1
+    sleep 0.3
+    ! log_has_connect_failure_since "$local_port" "$offset"
+}
+
+forwarding_works() {
+    local local_port="$1"
+
+    is_loaded "$local_port" && forwarded_connection_works "$local_port"
+}
+
+wait_for_forwarding() {
+    local local_port="$1"
+    local i
+
+    validate_positive_integer "$PF_CHECK_ATTEMPTS" 'PF_CHECK_ATTEMPTS'
+
+    for ((i = 1; i <= PF_CHECK_ATTEMPTS; i++)); do
+        if forwarding_works "$local_port"; then
+            return 0
+        fi
+        sleep "$PF_CHECK_DELAY"
+    done
+
+    return 1
 }
 
 launchd_is_loaded() {
@@ -523,12 +632,38 @@ bootstrap_service() {
 
 bootout_launchd_service() {
     local local_port="$1"
-    local plist
+    local plist pid ssh_pid i
     plist="$(plist_path_for "$local_port")"
+
+    mkdir -p "$STATE_DIR"
+    touch "$(stop_path_for "$local_port")"
 
     if is_loaded "$local_port" || [[ -f "$plist" ]]; then
         launchctl bootout "$(domain)" "$plist" >/dev/null 2>&1 || true
     fi
+
+    if pid="$(read_pid_file "$(pid_path_for "$local_port")")"; then
+        kill "$pid" >/dev/null 2>&1 || true
+    fi
+    if ssh_pid="$(read_pid_file "$(ssh_pid_path_for "$local_port")")"; then
+        kill "$ssh_pid" >/dev/null 2>&1 || true
+    fi
+
+    for i in 1 2 3 4 5; do
+        if { [[ -z "${pid:-}" ]] || ! pid_is_running "$pid"; } && { [[ -z "${ssh_pid:-}" ]] || ! pid_is_running "$ssh_pid"; }; then
+            break
+        fi
+        sleep 0.2
+    done
+
+    if [[ -n "${pid:-}" ]] && pid_is_running "$pid"; then
+        kill -KILL "$pid" >/dev/null 2>&1 || true
+    fi
+    if [[ -n "${ssh_pid:-}" ]] && pid_is_running "$ssh_pid"; then
+        kill -KILL "$ssh_pid" >/dev/null 2>&1 || true
+    fi
+
+    rm -f "$(pid_path_for "$local_port")" "$(ssh_pid_path_for "$local_port")" "$(stop_path_for "$local_port")"
 }
 
 bootout_process_service() {
@@ -616,32 +751,74 @@ cmd_up() {
     done
 }
 
-cmd_ensure() {
-    [[ $# -gt 0 ]] || {
-        usage_ensure >&2
-        exit 2
-    }
+check_current_mapping() {
+    local local_port="$LOCAL_PORT"
+    local remote_port="$REMOTE_PORT"
+
+    if forwarding_works "$local_port"; then
+        printf '[pf] ok local %s -> %s:%s via %s\n' "$local_port" "$PF_REMOTE_HOST" "$remote_port" "$PF_HOST"
+        return
+    fi
+
+    restart_port "$local_port"
+    if wait_for_forwarding "$LOCAL_PORT"; then
+        printf '[pf] ok local %s -> %s:%s via %s\n' "$LOCAL_PORT" "$PF_REMOTE_HOST" "$REMOTE_PORT" "$PF_HOST"
+    else
+        die "local port $LOCAL_PORT did not pass the forwarding check after repair; check $STATE_DIR/$LOCAL_PORT.err.log" 1
+    fi
+}
+
+cmd_check() {
+    if [[ $# -eq 0 ]]; then
+        set -- --all
+    fi
 
     for spec in "$@"; do
         [[ "$spec" == '-h' || "$spec" == '--help' ]] && {
-            usage_ensure
+            usage_check
             exit 0
         }
     done
 
     PF_BACKEND="$(detect_backend)"
-    [[ -n "$PF_HOST" ]] || die "missing PF_HOST. Set it in $CONFIG_FILE or pass --host <ssh-host>. Example: pf --host mac ensure 3000" 2
-    validate_name "$PF_HOST" 'host'
-    validate_name "$PF_REMOTE_HOST" 'remote host'
-    validate_name "$PF_BIND" 'bind address'
-    ensure_backend_dependencies
+
+    if [[ "$1" == '--all' ]]; then
+        [[ $# -eq 1 ]] || die 'check --all does not accept port arguments' 2
+
+        local state_file local_port checked=0
+        shopt -s nullglob
+        for state_file in "$STATE_DIR"/*.state; do
+            local_port="${state_file##*/}"
+            local_port="${local_port%.state}"
+            load_state_for_restart "$local_port"
+            ensure_backend_dependencies
+            check_current_mapping
+            checked=1
+        done
+        shopt -u nullglob
+
+        if [[ "$checked" == 0 ]]; then
+            printf '[pf] no managed forwarding services\n'
+        fi
+        return
+    fi
 
     for spec in "$@"; do
+        if ! mapping_has_remote_port "$spec" && [[ -f "$(state_path_for "$spec")" ]]; then
+            validate_port "$spec"
+            load_state_for_restart "$spec"
+            ensure_backend_dependencies
+            check_current_mapping
+            continue
+        fi
+
         parse_mapping "$spec"
+        validate_current_profile
+        ensure_backend_dependencies
 
         if [[ -f "$(state_path_for "$LOCAL_PORT")" ]]; then
             if state_matches "$LOCAL_PORT" "$REMOTE_PORT"; then
-                restart_port "$LOCAL_PORT"
+                check_current_mapping
                 continue
             fi
 
@@ -660,6 +837,12 @@ cmd_ensure() {
             printf '[pf] up local %s -> %s:%s via %s\n' "$LOCAL_PORT" "$PF_REMOTE_HOST" "$REMOTE_PORT" "$PF_HOST"
         else
             die "failed to start local port $LOCAL_PORT; check $STATE_DIR/$LOCAL_PORT.err.log" 1
+        fi
+
+        if wait_for_forwarding "$LOCAL_PORT"; then
+            printf '[pf] ok local %s -> %s:%s via %s\n' "$LOCAL_PORT" "$PF_REMOTE_HOST" "$REMOTE_PORT" "$PF_HOST"
+        else
+            die "local port $LOCAL_PORT did not pass the forwarding check after start; check $STATE_DIR/$LOCAL_PORT.err.log" 1
         fi
     done
 }
@@ -854,7 +1037,7 @@ shift
 
 case "$cmd" in
     up) cmd_up "$@" ;;
-    ensure) cmd_ensure "$@" ;;
+    check) cmd_check "$@" ;;
     down) cmd_down "$@" ;;
     restart) cmd_restart "$@" ;;
     ls|list) cmd_ls "$@" ;;
