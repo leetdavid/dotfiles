@@ -1,0 +1,70 @@
+[alias]
+
+	# View abbreviaterd SHA, description, and history graph of the latest 20 commits
+	l = log --pretty=oneline -n 20 --graph --abbrev-commit
+
+	# Clone a repository including all submodules
+	c = clone --recursive
+
+	# Delete all local branches that have been removed from the remote
+	prune-gone = !git fetch --prune && git branch -vv | awk '/: gone]$/ {print $1}' | xargs -r git branch -d
+
+	# Delete all local branches that have been removed from the remote (alternative)
+	gone = fetch --prune
+
+
+[color]
+	ui = auto
+
+[color "branch"]
+
+	current = yellow reverse
+	local = yellow
+	remote = green
+
+[color "diff"]
+
+	meta = yellow bold
+	frag = magenta bold # line info
+	old = red # deletions
+	new = green # additions
+
+[color "status"]
+
+	added = yellow
+	changed = green
+	untracked = cyan
+
+[diff]
+
+	# Detect copies as well as renames
+	renames = copies
+
+
+[init]
+	defaultBranch = main
+
+[core]
+	pager = less -F -X
+
+[filter "lfs"]
+	clean = git-lfs clean -- %f
+	smudge = git-lfs smudge -- %f
+	process = git-lfs filter-process
+	required = true
+
+
+[commit]
+	gpgsign = true
+[gpg]
+	program = /opt/homebrew/bin/gpg
+[credential]
+	helper = cache
+[pull]
+	rebase = true
+[user]
+	name = David Lee
+	email = leetdavidu@gmail.com
+	signingkey = 4625A9B5AA552BEC895478816B5D32FF4C6F92FB
+[github]
+	user = leetdavid
