@@ -8,6 +8,11 @@
         "apiKey": "{file:~/.config/opencode/.cli-proxy-api-key}",
       },
     },
+    "ollama": {
+      "options": {
+	"baseURL": "http://localhost:11434/v1",
+      },
+    },
   },
   "mcp": {
     "chrome-devtools": {
