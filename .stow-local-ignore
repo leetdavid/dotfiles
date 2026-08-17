@@ -2,6 +2,7 @@ backup/*
 fonts/*
 ./nvim
 .git/
+.git/*
 README.md
 .gitignore
 docs/
