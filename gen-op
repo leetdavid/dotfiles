@@ -1,0 +1,4 @@
+#!/bin/bash
+
+echo "$(op signin --account my)" >> ~/.op
+echo "$(op signin --account work)" >> ~/.op

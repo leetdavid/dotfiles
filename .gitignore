@@ -2,3 +2,4 @@ backup/
 .env
 .DS_Store
 .claude/
+.op

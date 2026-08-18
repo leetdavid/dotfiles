@@ -65,6 +65,10 @@ if [[ -f "/opt/homebrew/bin/brew" ]]; then
   eval "$(/opt/homebrew/bin/brew shellenv)"
 fi
 
+# if the .op file is present, source it
+if [[ -f "$HOME/.op" ]]; then
+  source "$HOME/.op"
+fi
 
 eval "$(starship init zsh)"
 
@@ -108,7 +112,7 @@ fi
 if [[ "$(uname -s)" == "Darwin" ]]; then
 
   export PATH="/opt/homebrew/share/google-cloud-sdk/bin:$PATH"
-  
+
   # Low Power Mode Script
   lowpower() {
     local current target lp_status
