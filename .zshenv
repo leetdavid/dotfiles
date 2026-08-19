@@ -5,4 +5,4 @@ if [[ -x "/opt/homebrew/bin/fnm" ]]; then
   eval "$(/opt/homebrew/bin/fnm env --shell zsh)"
 fi
 
-. "$HOME/.cargo/env"
+[[ -f "$HOME/.cargo/env" ]] && . "$HOME/.cargo/env"

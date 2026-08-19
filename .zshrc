@@ -182,5 +182,5 @@ export PATH="$BUN_INSTALL/bin:$PATH"
 
 export PATH=$PATH:/Users/david/.spicetify
 # >>> railway initialize >>>
-source "$HOME/.railway/env"
+[[ -f "$HOME/.railway/env" ]] && source "$HOME/.railway/env"
 # <<< railway initialize <<<

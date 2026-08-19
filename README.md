@@ -26,6 +26,10 @@ brew install stow zoxide eza fzf fnm kubectl lazygit
 curl -sS https://starship.rs/install.sh | sh
 ```
 
+### Optional Tool Setup
+
+The shell configuration loads Cargo (`~/.cargo/env`) and Railway (`~/.railway/env`) environment files only when they exist. Install either tool when needed; their absence will not produce shell startup errors.
+
 ### Clone and Setup
 
 ```bash
