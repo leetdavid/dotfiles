@@ -30,8 +30,8 @@ curl -sS https://starship.rs/install.sh | sh
 
 ```bash
 # Clone the repository
-git clone https://github.com/leetdavid/dotfiles.git ~/.dotfiles
-cd ~/.dotfiles
+git clone https://github.com/leetdavid/dotfiles
+cd ~/dotfiles
 
 # Use stow to symlink dotfiles
 stow .
