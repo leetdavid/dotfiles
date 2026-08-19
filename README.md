@@ -18,9 +18,11 @@ This repository contains configuration files for:
 
 Ensure you have the following installed:
 
+* zsh (`sudo apt install zsh`)
+
 ```bash
 # macOS (using Homebrew)
-brew install stow zoxide eza fzf fnm kubectl lazygit
+brew install stow zoxide eza fzf fnm lazygit
 
 # Starship prompt
 curl -sS https://starship.rs/install.sh | sh
