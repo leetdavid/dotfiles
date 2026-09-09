@@ -4,26 +4,20 @@
     "openai": {
       "options": {
         "baseURL": "http://127.0.0.1:8317/v1",
-        "apiKey": "{file:~/.config/opencode/.cli-proxy-api-key}",
-      },
+        "apiKey": "{file:~/.config/opencode/.cli-proxy-api-key}"
+      }
     },
     "ollama": {
       "options": {
-        "baseURL": "http://localhost:11434/v1",
-      },
-    },
-    "vercel": {
-      "options": {
-        "baseURL": "http://127.0.0.1:8317/v1",
-        "apiKey": "{file:~/.config/opencode/.cli-proxy-api-key}"
-      },
+        "baseURL": "http://localhost:11434/v1"
+      }
     }
   },
   "server": {
     "port": 4096,
     "hostname": "0.0.0.0",
     "mdns": true,
-    "cors": ["http://mac.li-tone.ts.net", "http://mac"],
+    "cors": ["http://mac.li-tone.ts.net", "http://mac"]
   },
-  "autoupdate": true,
+  "autoupdate": true
 }
