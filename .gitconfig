@@ -54,17 +54,21 @@
 	required = true
 
 
-[commit]
-	gpgsign = true
-[gpg]
-	program = /opt/homebrew/bin/gpg
 [credential]
 	helper = cache
 [pull]
 	rebase = true
+[github]
+	user = leetdavid
 [user]
 	name = David Lee
 	email = leetdavidu@gmail.com
-	signingkey = 4625A9B5AA552BEC895478816B5D32FF4C6F92FB
-[github]
-	user = leetdavid
+	signingkey = ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQDWbvpaGDiWBl8oMGZIWOqRoLTxsj6Ql0otsZiau7d7RV9uUt3sl3ksEfdjYywxfFCRpoC+c7F2kPSGjMmvHcanuoI5o6qiaCbROQ6bkxWcl6SlvP5havpfOxfys2xGm5NZZLwMTj//oK1Uw9U2tNrBCV5shOdQnDwYmXSVn7Zs7F5oVOZ2IDsWrPad7VmbiUdPTeF3F2Fn+XMj0ODHR7h6te1Yp3JU3Pc/UUoZ70mI8QYn/Yk4trE4h38nVMhsNoQtYnO94pSxdS/A9YdA2alxtZ4nSfKybzKlwwHbxe65kSHwy89rOzfrpae/2eTLcscb6mjZlP6Sr80n2K2SY0LvcN7rJn2t8/F0JMQL/bumYNUgQoYQdHJhkjP40HxhjnF4ww/GZOpJDbsNsDzUfbd1vDXWdS39Gh+m2o6wwvWySbOnZt+Dfn2S+X2S970xgO/omgNOJj1zIoA1lJYaKIVDp0/Z53A6UrMEQyE1fNxgDJ6wS2OEGyiK1xuYtlj7qL0=
+[gpg]
+	format = ssh
+[gpg "ssh"]
+	program = "/Applications/1Password.app/Contents/MacOS/op-ssh-sign"
+[commit]
+	gpgsign = true
+[tag]
+	gpgSign = true
