@@ -55,7 +55,7 @@
 
 
 [credential]
-	helper = cache
+	helper = store
 [pull]
 	rebase = true
 [github]
