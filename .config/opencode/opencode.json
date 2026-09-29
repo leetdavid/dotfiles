@@ -12,10 +12,9 @@
         "disabled": false,
         "type": "local"
       },
-      "tldraw": {
-        "disabled": false,
-        "type": "remote",
-        "url": "https://tldraw-mcp-app.tldraw.workers.dev/mcp"
+      "doop": {
+	"type": "http",
+	"url": "https://doop.design/mcp"
       }
     }
   },
@@ -28,7 +27,7 @@
     "openai": {
       "settings": {
         "apiKey": "{file:~/.config/opencode/.cli-proxy-api-key}",
-        "baseURL": "http://127.0.0.1:8317/v1"
+        "baseURL": "http://mac.li-tone.ts.net:8317/v1"
       }
     }
   },
