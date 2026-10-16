@@ -1,6 +1,6 @@
 # Claude Code proxy
 
-Tinyproxy runs on the Mac mini at `100.81.99.6:8888`, reachable over Tailscale.
+Tinyproxy runs on the Mac mini at `mac:8888`, reachable over Tailscale.
 Claude Code runs on each client with that client's existing authentication.
 
 ```text
@@ -14,7 +14,8 @@ connection between devices is carried inside Tailscale's encrypted network.
 
 ## Use from a client
 
-Connect the client to the same tailnet. With these dotfiles installed, run:
+Connect the client to the same tailnet with Tailscale DNS enabled so `mac`
+resolves through MagicDNS. With these dotfiles installed, run:
 
 ```sh
 claude --settings "$HOME/.config/claude-proxy/client-settings.json"
@@ -83,11 +84,11 @@ at startup, launchd retries. Keep this Mac awake for remote use.
 
 ```sh
 # Check egress through the proxy. This endpoint identifies Mullvad exit IPs.
-curl --proxy http://100.81.99.6:8888 --noproxy '' \
+curl --proxy http://mac:8888 --noproxy '' \
   --connect-timeout 10 --max-time 20 https://am.i.mullvad.net/json
 
 # An unauthenticated 401 verifies the HTTPS tunnel to Anthropic.
-curl --proxy http://100.81.99.6:8888 --noproxy '' \
+curl --proxy http://mac:8888 --noproxy '' \
   --connect-timeout 10 --max-time 20 -sS -o /dev/null -w '%{http_code}\n' \
   https://api.anthropic.com/v1/models
 

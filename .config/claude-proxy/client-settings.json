@@ -1,10 +1,10 @@
 {
   "$schema": "https://json.schemastore.org/claude-code-settings.json",
   "env": {
-    "HTTPS_PROXY": "http://100.81.99.6:8888",
-    "https_proxy": "http://100.81.99.6:8888",
-    "HTTP_PROXY": "http://100.81.99.6:8888",
-    "http_proxy": "http://100.81.99.6:8888",
+    "HTTPS_PROXY": "http://mac:8888",
+    "https_proxy": "http://mac:8888",
+    "HTTP_PROXY": "http://mac:8888",
+    "http_proxy": "http://mac:8888",
     "NO_PROXY": "localhost,127.0.0.1,::1",
     "no_proxy": "localhost,127.0.0.1,::1"
   }
