@@ -1,5 +1,8 @@
 # Claude Code proxy
 
+For model requests, use the [CLIProxyAPI client setup](claude-gateway.md). That
+profile also uses this forward proxy for other proxy-aware Claude CLI traffic.
+
 Tinyproxy runs on the Mac mini at `mac:8888`, reachable over Tailscale.
 Claude Code runs on each client with that client's existing authentication.
 

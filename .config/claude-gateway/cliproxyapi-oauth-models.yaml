@@ -1,0 +1,14 @@
+# Merge into CLIProxyAPI v8's existing oauth section.
+# Unique OAuth-only aliases keep these requests out of API-key routing pools.
+oauth:
+  model-alias:
+    claude:
+      - name: claude-sonnet-5-5
+        alias: claude-sonnet-5-5-subscription
+        fork: true
+      - name: claude-opus-5-5
+        alias: claude-opus-5-5-subscription
+        fork: true
+      - name: claude-haiku-5-5
+        alias: claude-haiku-5-5-subscription
+        fork: true

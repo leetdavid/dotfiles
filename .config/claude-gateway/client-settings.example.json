@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "model": "claude-sonnet-5-5-subscription",
+  "availableModels": [
+    "claude-sonnet-5-5-subscription",
+    "claude-opus-5-5-subscription",
+    "claude-haiku-5-5-subscription"
+  ],
+  "env": {
+    "ANTHROPIC_BASE_URL": "http://mac:8317",
+    "ANTHROPIC_AUTH_TOKEN": "REPLACE_WITH_CLIPROXYAPI_CLIENT_KEY",
+    "ANTHROPIC_API_KEY": "",
+    "ANTHROPIC_DEFAULT_SONNET_MODEL": "claude-sonnet-5-5-subscription",
+    "ANTHROPIC_DEFAULT_OPUS_MODEL": "claude-opus-5-5-subscription",
+    "ANTHROPIC_DEFAULT_HAIKU_MODEL": "claude-haiku-5-5-subscription",
+    "HTTPS_PROXY": "http://mac:8888",
+    "https_proxy": "http://mac:8888",
+    "HTTP_PROXY": "http://mac:8888",
+    "http_proxy": "http://mac:8888",
+    "NO_PROXY": "mac,mac.li-tone.ts.net,100.81.99.6,localhost,127.0.0.1,::1",
+    "no_proxy": "mac,mac.li-tone.ts.net,100.81.99.6,localhost,127.0.0.1,::1"
+  }
+}
