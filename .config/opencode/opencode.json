@@ -12,9 +12,18 @@
         "disabled": false,
         "type": "local"
       },
+      "tldraw": {
+        "disabled": false,
+        "type": "remote",
+        "url": "https://tldraw-mcp-app.tldraw.workers.dev/mcp"
+      },
       "doop": {
-	"type": "http",
-	"url": "https://doop.design/mcp"
+        "type": "remote",
+        "url": "https://doop.design/mcp"
+      },
+      "vercel": {
+        "type": "remote",
+        "url": "https://mcp.vercel.com"
       }
     }
   },
