@@ -1,0 +1,29 @@
+#!/bin/sh
+set -eu
+umask 077
+
+export HOME=/Users/david
+export PATH="$HOME/.local/share/meridian/node_modules/.bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+
+set -a
+. "$HOME/.local/state/meridian/service.env"
+set +a
+: "${MERIDIAN_API_KEY:?Missing Meridian client API key}"
+: "${CLAUDE_CODE_OAUTH_TOKEN:?Missing Claude service token}"
+
+MERIDIAN_PROFILES="$(/opt/homebrew/bin/node -e 'process.stdout.write(JSON.stringify([{id: "service", oauthToken: process.env.CLAUDE_CODE_OAUTH_TOKEN}]))')"
+export MERIDIAN_PROFILES
+
+export MERIDIAN_BACKEND=claude
+export MERIDIAN_HOST=127.0.0.1
+export MERIDIAN_PORT=3456
+export MERIDIAN_PASSTHROUGH=1
+export MERIDIAN_CONFIG_DIR="$HOME/.config/meridian"
+export MERIDIAN_WORKDIR="$HOME/.local/state/meridian/workspace"
+export MERIDIAN_SESSION_DIR="$HOME/.local/state/meridian/sessions"
+export MERIDIAN_DEFAULT_PROFILE=service
+export MERIDIAN_TELEMETRY_PERSIST=1
+export MERIDIAN_TELEMETRY_RETENTION_DAYS=7
+
+cd "$MERIDIAN_WORKDIR"
+exec /opt/homebrew/bin/node "$HOME/.local/share/meridian/node_modules/@rynfar/meridian/dist/cli.js"

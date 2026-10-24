@@ -32,6 +32,8 @@ curl -sS https://starship.rs/install.sh | sh
 
 The shell configuration loads Cargo (`~/.cargo/env`) and Railway (`~/.railway/env`) environment files only when they exist. Install either tool when needed; their absence will not produce shell startup errors.
 
+For starting remote OpenCode tasks from Linear desktop, see [Linear to remote OpenCode](docs/linear-opencode.md).
+
 ### Clone and Setup
 
 ```bash

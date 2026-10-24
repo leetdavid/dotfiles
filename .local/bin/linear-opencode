@@ -1,0 +1,82 @@
+#!/usr/bin/env bash
+set -euo pipefail
+umask 077
+
+usage() {
+    cat <<'EOF'
+Usage: linear-opencode [--host <ssh-host>] [--repo <server-path>] [--model <provider/model>] [--effort <level>] [--dry-run]
+
+Starts a remote OpenCode session from LINEAR_PROMPT without opening a window.
+Defaults: --host mac --repo '~/dev/pulse' --model openai/gpt-6.1-sol --effort max
+The repository path is resolved on the server, not the client.
+The session title is "<LINEAR_ISSUE_IDENTIFIER> - <ticket title>", using the <title> in LINEAR_PROMPT.
+
+Examples:
+  LINEAR_PROMPT='Implement the requested fix' linear-opencode
+  LINEAR_PROMPT='Inspect this issue' linear-opencode --repo '~/dev/other'
+  LINEAR_PROMPT='Quick check' linear-opencode --effort high
+  LINEAR_PROMPT='Preview this task' linear-opencode --dry-run
+
+--dry-run connects over SSH and prints the request without starting a session.
+Normal submissions and errors are logged to ~/Library/Logs/linear-opencode.log.
+EOF
+}
+
+die() {
+    printf '[linear-opencode] %s\n' "$1" >&2
+    exit 2
+}
+
+shell_quote() {
+    local quote="'\"'\"'"
+    printf "'%s'" "${1//\'/$quote}"
+}
+
+host=mac
+repo='~/dev/pulse'
+model='openai/gpt-6.1-sol'
+effort=max
+dry_run=0
+
+while (($#)); do
+    case "$1" in
+        --host|--repo|--model|--effort)
+            (($# >= 2)) || die "$1 needs a value. See: linear-opencode --help"
+            case "$1" in
+                --host) host="$2" ;;
+                --repo) repo="$2" ;;
+                --model) model="$2" ;;
+                --effort) effort="$2" ;;
+            esac
+            shift 2
+            ;;
+        --dry-run) dry_run=1; shift ;;
+        -h|--help) usage; exit 0 ;;
+        *) die "unknown argument: $1. See: linear-opencode --help" ;;
+    esac
+done
+
+case "$host" in
+    ''|-*|*[!A-Za-z0-9._:@-]*) die 'invalid SSH host; use an SSH alias such as mac' ;;
+esac
+[[ -n "$repo" ]] || die '--repo needs a server repository path'
+[[ -n "${LINEAR_PROMPT:-}" ]] || die 'LINEAR_PROMPT is empty. Expose it in ~/.linear/coding-tools.json.'
+
+remote_command='export PATH="$HOME/.opencode/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:$PATH"; exec "$HOME/.local/bin/linear-opencode-start"'
+remote_command+=" --repo $(shell_quote "$repo") --issue $(shell_quote "${LINEAR_ISSUE_IDENTIFIER:-}")"
+remote_command+=" --model $(shell_quote "$model") --effort $(shell_quote "$effort")"
+if ((dry_run)); then remote_command+=' --dry-run'; fi
+
+run_remote() {
+    printf '%s' "$LINEAR_PROMPT" | ssh -T \
+        -o BatchMode=yes -o ConnectTimeout=10 \
+        -o ServerAliveInterval=15 -o ServerAliveCountMax=2 \
+        "$host" "$remote_command"
+}
+
+if ((dry_run)); then
+    run_remote
+else
+    mkdir -p "$HOME/Library/Logs"
+    run_remote 2>&1 | tee -a "$HOME/Library/Logs/linear-opencode.log"
+fi

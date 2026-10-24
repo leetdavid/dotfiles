@@ -1,0 +1,131 @@
+#!/usr/bin/env python3
+"""Submit a Linear prompt to the local shared OpenCode service."""
+
+import argparse
+import json
+import re
+import shutil
+import subprocess
+import sys
+from pathlib import Path
+
+
+class LaunchError(Exception):
+    pass
+
+
+def api(opencode: str, directory: Path, path: str, body: dict) -> dict:
+    try:
+        result = subprocess.run(
+            [opencode, "api", "post", path, "--data", json.dumps(body)],
+            cwd=directory,
+            stdin=subprocess.DEVNULL,
+            capture_output=True,
+            text=True,
+            timeout=60,
+            check=True,
+        )
+    except subprocess.TimeoutExpired:
+        raise LaunchError(f"OpenCode request {path} timed out; check OpenCode web before retrying.") from None
+    except subprocess.CalledProcessError as error:
+        detail = error.stderr.strip() or "check the OpenCode service and authentication"
+        raise LaunchError(f"OpenCode request {path} failed: {detail}") from None
+    except OSError as error:
+        raise LaunchError(f"Could not run OpenCode: {error}") from None
+
+    try:
+        response = json.loads(result.stdout)
+    except json.JSONDecodeError:
+        raise LaunchError(f"OpenCode request {path} returned invalid JSON.") from None
+    if not isinstance(response, dict) or not isinstance(response.get("data"), dict):
+        raise LaunchError(f"OpenCode request {path} returned an unexpected response.")
+    return response["data"]
+
+
+def session_title(issue: str, prompt: str) -> str:
+    match = re.search(r"<title>(.*?)</title>", prompt, re.DOTALL)
+    title = " ".join(match.group(1).split()) if match else ""
+    if issue and title:
+        return f"{issue} - {title}"
+    return issue or "Linear task"
+
+
+def workspace_prompt(prompt: str, directory: Path) -> str:
+    return prompt + (
+        "\n\n## Workspace instructions from the user\n\n"
+        "These instructions override Linear-generated branch, worktree, and working-directory setup above.\n"
+        f"Work directly in the existing checkout at {json.dumps(str(directory))} on its current branch.\n"
+        "Do not create or switch branches, create another worktree, or move this session to another checkout.\n"
+        "Preserve unrelated existing changes. Start the requested coding task now.\n"
+    )
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(
+        description="Start a persistent OpenCode session from a prompt on stdin; do not wait for completion.",
+        epilog="Example: printf 'Implement the fix' | linear-opencode-start --repo '~/dev/pulse' --issue PULSE-123",
+    )
+    parser.add_argument("--repo", default="~/dev/pulse", help="existing server checkout; default: ~/dev/pulse")
+    parser.add_argument("--issue", default="", help="Linear issue identifier used in the session title")
+    parser.add_argument("--model", default="", help="provider/model, such as openai/gpt-6.1-sol; default: OpenCode's default")
+    parser.add_argument("--effort", default="", help="model effort (OpenCode variant), such as max; needs --model")
+    parser.add_argument("--dry-run", action="store_true", help="print the request without calling OpenCode")
+    args = parser.parse_args()
+
+    directory = Path(args.repo).expanduser()
+    if not directory.is_absolute():
+        parser.error("--repo must be an absolute server path or start with ~/")
+    directory = directory.resolve()
+    if not directory.is_dir():
+        parser.error(f"repository directory does not exist: {directory}")
+    if sys.stdin.isatty():
+        parser.error("pipe the Linear prompt into stdin")
+    prompt = sys.stdin.read()
+    if not prompt.strip():
+        parser.error("the prompt on stdin is empty")
+
+    session_body = {
+        "title": session_title(args.issue, prompt),
+        "location": {"directory": str(directory)},
+    }
+    if args.model:
+        provider_id, slash, model_id = args.model.partition("/")
+        if not slash or not provider_id or not model_id:
+            parser.error("--model must look like provider/model, such as openai/gpt-6.1-sol")
+        session_body["model"] = {"id": model_id, "providerID": provider_id}
+        if args.effort:
+            session_body["model"]["variant"] = args.effort
+    elif args.effort:
+        parser.error("--effort needs --model")
+    prompt_body = {"text": workspace_prompt(prompt, directory), "resume": True}
+    if args.dry_run:
+        print(json.dumps({"session": session_body, "prompt": prompt_body}, indent=2))
+        return 0
+
+    installed = Path.home() / ".opencode/bin/opencode"
+    opencode = str(installed) if installed.is_file() else shutil.which("opencode")
+    if not opencode:
+        raise LaunchError("OpenCode is not installed. Install OpenCode V2 on this server first.")
+
+    session = api(opencode, directory, "/api/session", session_body)
+    session_id = session.get("id")
+    if not isinstance(session_id, str) or not session_id.startswith("ses"):
+        raise LaunchError("OpenCode returned no session ID; check OpenCode web before retrying.")
+    try:
+        api(opencode, directory, f"/api/session/{session_id}/prompt", prompt_body)
+    except LaunchError as error:
+        raise LaunchError(
+            f"Session {session_id} was created, but prompt submission failed or is unconfirmed. "
+            f"Check that session in OpenCode web before retrying. {error}"
+        ) from None
+
+    print(json.dumps({"sessionID": session_id, "directory": str(directory), "submitted": True}))
+    return 0
+
+
+if __name__ == "__main__":
+    try:
+        sys.exit(main())
+    except LaunchError as error:
+        print(f"[linear-opencode-start] {error}", file=sys.stderr)
+        sys.exit(1)

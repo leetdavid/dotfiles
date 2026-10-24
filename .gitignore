@@ -4,3 +4,4 @@ backup/
 .claude/
 .op
 .config/opencode/server-password
+__pycache__/
