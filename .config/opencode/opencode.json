@@ -28,11 +28,6 @@
     }
   },
   "providers": {
-    "ollama": {
-      "settings": {
-        "baseURL": "http://localhost:11434/v1"
-      }
-    },
     "openai": {
       "settings": {
         "apiKey": "{file:~/.config/opencode/.cli-proxy-api-key}",
@@ -42,7 +37,7 @@
   },
   "agents": {
     "title": {
-      "model": "openai/gpt-5.6-luna"
+      "model": "openai/gpt-6-luna"
     }
   }
 }
